@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ---------- Version ----------
-BOT_VERSION = "3.1 - fixed task claims"
+BOT_VERSION = "2.0 - fixed task claims"
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
