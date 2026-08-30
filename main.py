@@ -465,12 +465,13 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     device_id, base64_id, numeric_key, debug_msg = await loop.run_in_executor(None, create_account, email, full_name, phone)
     
     if not device_id:
+        # FIX: Changed to HTML to safely handle unexpected API characters
         error_text = (
-            f"❌ *Account creation failed!*\n\n"
-            f"🔍 *DEBUG INFO:*\n`{debug_msg}`\n\n"
+            f"❌ <b>Account creation failed!</b>\n\n"
+            f"🔍 <b>DEBUG INFO:</b>\n<code>{debug_msg}</code>\n\n"
             f"शायद email already exist या server error. कृपया फिर try करें।"
         )
-        await update.message.reply_text(error_text, reply_markup=get_main_menu(), parse_mode="Markdown")
+        await update.message.reply_text(error_text, reply_markup=get_main_menu(), parse_mode="HTML")
         return ConversationHandler.END
 
     account_data = {
@@ -489,19 +490,27 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     accounts.append(account_data)
     firebase_write(f"turbo/{chat_id}/accounts", accounts)
 
-    await update.message.reply_text(
-        f"✅ *Account Created Successfully!*\n\n"
+    # FIX: Changed to HTML. Markdown breaks if the email contains an underscore (e.g. name_123@gmail.com)
+    success_msg = (
+        f"✅ <b>Account Created Successfully!</b>\n\n"
         f"📧 Email: {email}\n"
         f"👤 Name: {full_name}\n"
         f"📱 Phone: {phone}\n"
-        f"🆔 Device ID: `{device_id}`\n"
-        f"🔑 Base64 ID (key_id): `{base64_id}`\n"
-        f"🔢 Numeric Key: `{numeric_key}`\n\n"
-        "अब आप *Complete Today Task* कर सकते हैं या *My Account* से देख सकते हैं।",
-        reply_markup=get_main_menu(),
-        parse_mode="Markdown"
+        f"🆔 Device ID: <code>{device_id}</code>\n"
+        f"🔑 Base64 ID (key_id): <code>{base64_id}</code>\n"
+        f"🔢 Numeric Key: <code>{numeric_key}</code>\n\n"
+        "अब आप <b>Complete Today Task</b> कर सकते हैं या <b>My Account</b> से देख सकते हैं।"
     )
+    
+    try:
+        await update.message.reply_text(success_msg, reply_markup=get_main_menu(), parse_mode="HTML")
+    except Exception as e:
+        print(f"[ERROR] Failed to send success message: {e}")
+        # Fallback if there's still an unexpected parsing issue
+        await update.message.reply_text("✅ Account Created Successfully! (Check 'My Account')", reply_markup=get_main_menu())
+
     return ConversationHandler.END
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Cancelled.", reply_markup=get_main_menu())
