@@ -67,13 +67,14 @@ def generate_base64_id():
 def get_timestamp_ms():
     return int(time.time() * 1000)
 
-def post(endpoint, data):
+def post(endpoint, data, field='data'):
     url = BASE_API + endpoint
-    payload = {'data': json.dumps(data)}
+    payload = {field: json.dumps(data)}
     try:
-        resp = requests.post(url, data=payload, headers=HEADERS)
+        resp = requests.post(url, data=payload, headers=HEADERS, timeout=30)
         return resp
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] post to {endpoint}: {e}")
         return None
 
 # ---------- Account Creation ----------
@@ -91,7 +92,13 @@ def create_account(email, full_name, phone):
         "email_id": email,
         "id": base64_id
     }
-    resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS)
+
+    try:
+        resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS, timeout=30)
+    except Exception as e:
+        print(f"[ERROR] Signup: {e}")
+        return None, None, None
+
     if resp.status_code != 200:
         return None, None, None
 
@@ -99,8 +106,7 @@ def create_account(email, full_name, phone):
     if "Login Successfully" in text or "Register Successfully" in text:
         parts = text.split(',')
         if len(parts) >= 2:
-            numeric_key = parts[1]  # Token from server (e.g., "2727663415")
-            # Complete profile with numeric key
+            numeric_key = parts[1]
             profile_data = {
                 "Token": numeric_key,
                 "did": device_id,
@@ -108,11 +114,58 @@ def create_account(email, full_name, phone):
                 "full_name": full_name,
                 "phone_number": phone
             }
-            requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS)
+            try:
+                requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS, timeout=30)
+            except Exception as e:
+                print(f"[ERROR] Profile: {e}")
+                return None, None, None
             return device_id, base64_id, numeric_key
     return None, None, None
 
-# ---------- Task Runner (using base64_id as key_id) ----------
+# ---------- Balance Fetching ----------
+def get_balance(device_id, key_id):
+    try:
+        resp = post("df.php", {"device_id": device_id, "key_id": key_id}, field='d')
+        if resp and resp.status_code == 200:
+            parts = resp.text.split(',')
+            if parts:
+                return parts[0]  # first value is the balance
+    except Exception as e:
+        print(f"[ERROR] Balance: {e}")
+    return "0.00"
+
+# ---------- Coin History Fetching ----------
+def get_coin_history(device_id, key_id):
+    pages = []
+    page = 1
+    while True:
+        payload = {
+            "device_id": device_id,
+            "key_id": key_id,
+            "milisecond": get_timestamp_ms()
+        }
+        if page == 1:
+            # first page without ?page
+            endpoint = HISTORY_URL
+        else:
+            endpoint = f"{HISTORY_URL}?page={page}"
+        try:
+            resp = requests.post(endpoint, data={'dataa': json.dumps(payload)}, headers=HEADERS, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data and len(data) > 0:
+                    pages.append(data)
+                    page += 1
+                else:
+                    break  # empty array, stop
+            else:
+                break
+        except Exception as e:
+            print(f"[ERROR] History page {page}: {e}")
+            break
+    return pages
+
+# ---------- Task Runner (with estimated time & progress) ----------
 def run_tasks(device_id, key_id, bot, chat_id):
     def notify(msg):
         asyncio.run_coroutine_threadsafe(
@@ -120,77 +173,56 @@ def run_tasks(device_id, key_id, bot, chat_id):
             asyncio.get_event_loop()
         )
 
+    # Calculate estimated total time (sum of random delays)
+    delays = [random.randint(40, 90) for _ in range(6)]
+    total_seconds = sum(delays) + 30  # extra for API calls
+    minutes = total_seconds // 60
+    seconds = total_seconds % 60
+    notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll notify you after each step.")
+
     try:
-        notify("🔄 Claiming daily spins... (Step 1/6)")
+        # Step 1: Claim daily spins
+        notify("🔄 Claiming daily spins... (1/6)")
         post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
-        notify("✅ Daily spins claimed!")
-        delay = random.randint(40, 90)
-        notify(f"⏳ Waiting {delay}s before next task...")
-        time.sleep(delay)
+        notify("✅ Daily spins claimed! (1/6)")
+        time.sleep(delays[0])
 
-        notify("🎡 Spinning... (0.99) (Step 2/6)")
+        # Step 2: Spin 1
+        notify("🎡 Spinning... (0.99) (2/6)")
         post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-        notify("✅ Spin completed! (0.99)")
-        delay = random.randint(40, 90)
-        notify(f"⏳ Waiting {delay}s...")
-        time.sleep(delay)
+        notify("✅ Spin completed! (0.99) (2/6)")
+        time.sleep(delays[1])
 
-        notify("🎡 Spinning again... (0.99) (Step 3/6)")
+        # Step 3: Spin 2
+        notify("🎡 Spinning again... (0.99) (3/6)")
         post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-        notify("✅ Second spin completed! (0.99)")
-        delay = random.randint(40, 90)
-        notify(f"⏳ Waiting {delay}s...")
-        time.sleep(delay)
+        notify("✅ Second spin completed! (0.99) (3/6)")
+        time.sleep(delays[2])
 
-        notify("🪙 Scratching card... (0.22) (Step 4/6)")
+        # Step 4: Scratch card
+        notify("🪙 Scratching card... (0.22) (4/6)")
         post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-        notify("✅ Scratch card completed! (0.22)")
-        delay = random.randint(40, 90)
-        notify(f"⏳ Waiting {delay}s...")
-        time.sleep(delay)
+        notify("✅ Scratch card completed! (0.22) (4/6)")
+        time.sleep(delays[3])
 
-        notify("📅 Daily checkin... (0.22) (Step 5/6)")
+        # Step 5: Daily checkin
+        notify("📅 Daily checkin... (0.22) (5/6)")
         post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-        notify("✅ Daily checkin completed! (0.22)")
-        delay = random.randint(40, 90)
-        notify(f"⏳ Waiting {delay}s...")
-        time.sleep(delay)
+        notify("✅ Daily checkin completed! (0.22) (5/6)")
+        time.sleep(delays[4])
 
-        notify("📺 Watching video... (0.40) (Step 6/6)")
+        # Step 6: Watch video
+        notify("📺 Watching video... (0.40) (6/6)")
         post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
-        notify("✅ Video watched! (0.40)")
+        notify("✅ Video watched! (0.40) (6/6)")
 
-        resp = requests.get(DF_URL, headers=HEADERS)
-        total = "0.00"
-        if resp.status_code == 200:
-            parts = resp.text.split(',')
-            if parts:
-                total = parts[0]
-        notify(f"🎉 *All tasks completed!*\nToday's total: ₹{total}")
-        return total
+        # Get final balance
+        balance = get_balance(device_id, key_id)
+        notify(f"🎉 *All tasks completed!*\nToday's total: ₹{balance}")
+        return balance
     except Exception as e:
         notify(f"❌ Error: {e}")
         return "0.00"
-
-def get_coin_history():
-    pages = []
-    for page in [None, 1, 2, 3, 4]:
-        url = HISTORY_URL
-        if page is not None:
-            url += f"?page={page}"
-        resp = requests.get(url, headers=HEADERS)
-        if resp.status_code == 200:
-            try:
-                data = resp.json()
-                if data:
-                    pages.append(data)
-                else:
-                    break
-            except:
-                break
-        else:
-            break
-    return pages
 
 # ---------- Telegram Bot ----------
 GET_FULLNAME, GET_PHONE, GET_EMAIL = range(3)
@@ -280,17 +312,36 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif data == "do_task":
+        # Check if a task is already running for this user
+        if context.user_data.get('task_running', False):
+            await query.message.reply_text("⏳ *Task already in progress!*\nकृपया wait करें जब तक current task complete न हो जाए।", parse_mode="Markdown")
+            return
+
         acc = context.user_data.get('current_account')
         if not acc:
             await query.message.reply_text("❌ पहले कोई अकाउंट सेलेक्ट करें।", reply_markup=get_main_menu())
             return
+
         device_id = acc['device_id']
-        key_id = acc['base64_id']   # use base64_id as key_id
-        await query.message.reply_text("⏳ *Task in progress...* कृपया wait करें।\nयह कुछ मिनट लग सकते हैं।", parse_mode="Markdown")
+        key_id = acc['base64_id']
+
+        # Set task_running flag
+        context.user_data['task_running'] = True
+        await query.message.reply_text("⏳ *Task started...*\nI'll send updates as each step completes.", parse_mode="Markdown")
 
         loop = asyncio.get_event_loop()
         bot = context.bot
-        await loop.run_in_executor(None, run_tasks, device_id, key_id, bot, chat_id)
+        # Run task in thread, pass flag to clear when done
+        def task_wrapper():
+            try:
+                result = run_tasks(device_id, key_id, bot, chat_id)
+            finally:
+                # Clear flag after task completes (success or error)
+                context.user_data['task_running'] = False
+            return result
+
+        await loop.run_in_executor(None, task_wrapper)
+        # After task, show menu again
         await context.bot.send_message(chat_id, "✅ *Task Completed!*", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
@@ -299,13 +350,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not acc:
             await query.message.reply_text("❌ कोई अकाउंट सेलेक्ट नहीं।", reply_markup=get_main_menu())
             return
-        resp = requests.get(DF_URL, headers=HEADERS)
-        total = "0.00"
-        if resp.status_code == 200:
-            parts = resp.text.split(',')
-            if parts:
-                total = parts[0]
-        await query.message.reply_text(f"💰 *Current Balance:* ₹{total}\n\n(यह df.php से fetch किया गया है)", reply_markup=get_main_menu(), parse_mode="Markdown")
+        device_id = acc['device_id']
+        key_id = acc['base64_id']
+        balance = get_balance(device_id, key_id)
+        await query.message.reply_text(f"💰 *Current Balance:* ₹{balance}", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
     elif data == "history":
@@ -313,10 +361,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not acc:
             await query.message.reply_text("❌ कोई अकाउंट सेलेक्ट नहीं।", reply_markup=get_main_menu())
             return
+        device_id = acc['device_id']
+        key_id = acc['base64_id']
         await query.message.reply_text("⏳ *Fetching history...*", parse_mode="Markdown")
 
         loop = asyncio.get_event_loop()
-        pages = await loop.run_in_executor(None, get_coin_history)
+        pages = await loop.run_in_executor(None, get_coin_history, device_id, key_id)
         if not pages:
             await context.bot.send_message(chat_id, "📭 कोई इतिहास नहीं मिला।", reply_markup=get_main_menu())
         else:
@@ -401,8 +451,8 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     account_data = {
         "device_id": device_id,
-        "base64_id": base64_id,      # this is the key_id for claims
-        "numeric_key": numeric_key,  # server token (for profile)
+        "base64_id": base64_id,
+        "numeric_key": numeric_key,
         "email": email,
         "full_name": full_name,
         "phone": phone,
