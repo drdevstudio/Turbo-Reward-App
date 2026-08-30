@@ -17,8 +17,9 @@ from telegram.ext import (
 )
 
 # ---------- Version & Config ----------
-BOT_VERSION = "4.0 - Async Concurrency & Force Sub"
-CHANNEL_USERNAME = "@drdevstudio"
+BOT_VERSION = "4.1 - Multi-Channel Force Sub"
+# Add as many channels as you want to this list
+CHANNELS = ["@drdevstudio", "@Zxkaimod"]
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -62,21 +63,29 @@ def firebase_update(path, data):
 
 # ---------- Channel Force Sub Helper ----------
 async def is_user_subscribed(bot, user_id):
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
-        # 'restricted' usually means muted, but still in the channel.
-        return member.status in ['member', 'administrator', 'creator', 'restricted']
-    except Exception as e:
-        print(f"[ERROR] Sub check failed: {e}")
-        return False
+    # Loop through all required channels
+    for channel in CHANNELS:
+        try:
+            member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
+            # If they left or were kicked from ANY channel, return False
+            if member.status not in ['member', 'administrator', 'creator', 'restricted']:
+                return False
+        except Exception as e:
+            print(f"[ERROR] Sub check failed for {channel}: {e}")
+            return False
+    # If the loop finishes, they are in all channels
+    return True
 
 async def send_force_sub_message(message_obj):
-    keyboard = [
-        [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")],
-        [InlineKeyboardButton("✅ Verify", callback_data="verify_sub")]
-    ]
+    keyboard = []
+    # Create a join button for every channel in the list
+    for idx, channel in enumerate(CHANNELS):
+        keyboard.append([InlineKeyboardButton(f"📢 Join Channel {idx + 1}", url=f"https://t.me/{channel.replace('@', '')}")])
+    
+    keyboard.append([InlineKeyboardButton("✅ Verify", callback_data="verify_sub")])
+    
     await message_obj.reply_text(
-        "❌ *Access Denied!*\n\nआपको पहले हमारा चैनल join करना होगा।\nकृपया चैनल join करें और 'Verify' पर क्लिक करें।",
+        "❌ *Access Denied!*\n\nआपको पहले हमारे सभी चैनल join करने होंगे।\nकृपया नीचे दिए गए सभी चैनल join करें और फिर 'Verify' पर क्लिक करें।",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -118,7 +127,6 @@ def create_account(email, full_name, phone):
     device_id = generate_device_id()
     base64_id = generate_base64_id()
 
-    # Safety check: if REFER_CODE is empty, use "Demo"
     refer = REFER_CODE if REFER_CODE else "Demo"
 
     signup_data = {
@@ -133,7 +141,6 @@ def create_account(email, full_name, phone):
     }
 
     try:
-        # Standard json.dumps (WITH spaces) for signup, as expected by this specific endpoint
         resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS, timeout=60)
         
         if resp.status_code != 200:
@@ -151,7 +158,6 @@ def create_account(email, full_name, phone):
                     "full_name": full_name,
                     "phone_number": phone
                 }
-                # Same here, keep standard spacing for profile endpoint
                 p_resp = requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS, timeout=30)
                 return device_id, base64_id, numeric_key, f"Success! Profile Resp: {p_resp.text}"
             else:
@@ -219,9 +225,6 @@ async def run_tasks_async(device_id, key_id, bot, chat_id):
     await notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response as they happen.")
 
     try:
-        # Use asyncio.to_thread for HTTP requests so they don't block the bot
-        # Use asyncio.sleep so other users can use the bot simultaneously
-        
         # 1) Claim daily spins
         await notify("🔄 Claiming daily spins... (1/6)")
         resp = await asyncio.to_thread(post, "spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()}, 'data')
@@ -263,7 +266,6 @@ async def run_tasks_async(device_id, key_id, bot, chat_id):
     except Exception as e:
         await notify(f"❌ Error: {e}")
 
-# Async Wrapper to maintain background execution states
 async def do_tasks_wrapper(device_id, key_id, bot, chat_id, user_data):
     try:
         await run_tasks_async(device_id, key_id, bot, chat_id)
@@ -309,7 +311,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "started_at": datetime.now().isoformat()
     }
     
-    # Run fast background write so UI isn't blocked
     await asyncio.to_thread(firebase_update, f"turbo/{chat_id}", user_data)
     
     try:
@@ -317,7 +318,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    # FORCE SUB CHECK
     if not await is_user_subscribed(context.bot, user.id):
         await send_force_sub_message(update.message)
         return
@@ -331,7 +331,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
     user_id = query.from_user.id
 
-    # Handle Verify Sub separately
     if data == "verify_sub":
         if await is_user_subscribed(context.bot, user_id):
             try:
@@ -340,10 +339,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
             await show_main_menu(update, context, query.message)
         else:
-            await query.answer("❌ आपने अभी तक चैनल join नहीं किया है!", show_alert=True)
+            await query.answer("❌ आपने अभी तक सभी चैनल join नहीं किए हैं!", show_alert=True)
         return
 
-    # Check sub for ALL other buttons
     if not await is_user_subscribed(context.bot, user_id):
         await send_force_sub_message(query.message)
         return
@@ -411,7 +409,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['task_running'] = True
         await query.message.reply_text("⏳ *Task started...*\nI'll send each API response as they happen.", parse_mode="Markdown")
 
-        # FIX: Launch as a completely non-blocking background async task
         asyncio.create_task(do_tasks_wrapper(device_id, key_id, context.bot, chat_id, context.user_data))
         return
 
@@ -483,7 +480,6 @@ async def create_account_start(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
 
-    # FORCE SUB CHECK
     if not await is_user_subscribed(context.bot, query.from_user.id):
         await send_force_sub_message(query.message)
         return ConversationHandler.END
@@ -516,7 +512,7 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = context.user_data['phone']
     email = context.user_data['email']
 
-    await update.message.reply_text("⏳ <b>Creating account...</b> कृपया wait करें।", parse_mode="HTML")
+    await update.message.reply_text("⏳ <b>Creating account...</b> कृपया wait करें。", parse_mode="HTML")
 
     device_id, base64_id, numeric_key, debug_msg = await asyncio.to_thread(create_account, email, full_name, phone)
     
