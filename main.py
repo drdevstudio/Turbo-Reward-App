@@ -16,6 +16,9 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes
 )
 
+# ---------- Version ----------
+BOT_VERSION = "3.0 - with estimated time"
+
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 FIREBASE_URL = os.getenv("FIREBASE_URL")
@@ -164,27 +167,32 @@ def get_coin_history(device_id, key_id):
             break
     return pages
 
-# ---------- Task Runner (with estimated time & proper order) ----------
-def run_tasks(device_id, key_id, bot, chat_id):
+# ---------- Task Runner (with version debug & estimated time, accepts loop) ----------
+def run_tasks(device_id, key_id, bot, chat_id, loop):
     def notify(msg):
-        asyncio.run_coroutine_threadsafe(
-            bot.send_message(chat_id, msg),
-            asyncio.get_event_loop()
-        )
+        try:
+            asyncio.run_coroutine_threadsafe(
+                bot.send_message(chat_id, msg),
+                loop
+            )
+        except Exception as e:
+            print(f"[ERROR] notify: {e}")
 
-    # Base delays from user's working script
+    # Send version debug
+    notify(f"🧪 DEBUG: Running version {BOT_VERSION}")
+
+    # Calculate estimated total time
     base_delays = [45, 60, 55, 75, 35]
-    # Add small variation for realism
     delays = [d + random.randint(-5, 5) for d in base_delays]
     total_seconds = sum(delays) + 10
     minutes = total_seconds // 60
     seconds = total_seconds % 60
 
-    # Send estimated time first
+    # This is the message you were missing
     notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response as they happen.")
 
     try:
-        # 1) Claim daily spins (FIRST STEP)
+        # 1) Claim daily spins
         notify("🔄 Claiming daily spins... (1/6)")
         resp = post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
         notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
@@ -219,7 +227,6 @@ def run_tasks(device_id, key_id, bot, chat_id):
         resp = post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
         notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
 
-        # Get final balance
         balance = get_balance(device_id, key_id)
         notify(f"🎉 *All tasks completed!*\nToday's total: ₹{balance}")
         return balance
@@ -227,7 +234,7 @@ def run_tasks(device_id, key_id, bot, chat_id):
         notify(f"❌ Error: {e}")
         return "0.00"
 
-# ---------- Telegram Bot (rest unchanged) ----------
+# ---------- Telegram Bot ----------
 GET_FULLNAME, GET_PHONE, GET_EMAIL = range(3)
 
 def get_main_menu():
@@ -261,6 +268,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "चुनें नीचे दिए गए बटन से 👇"
     )
     await update.message.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
+    await update.message.reply_text(f"🤖 *Bot Version:* `{BOT_VERSION}`", parse_mode="Markdown")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -330,15 +338,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['task_running'] = True
         await query.message.reply_text("⏳ *Task started...*\nI'll send each API response as they happen.", parse_mode="Markdown")
 
+        # Get the current event loop
         loop = asyncio.get_event_loop()
         bot = context.bot
 
         def task_wrapper():
             try:
-                run_tasks(device_id, key_id, bot, chat_id)
+                # Pass the loop to run_tasks
+                run_tasks(device_id, key_id, bot, chat_id, loop)
             finally:
                 context.user_data['task_running'] = False
 
+        # Run the task in a thread
         await loop.run_in_executor(None, task_wrapper)
         await context.bot.send_message(chat_id, "✅ *Task Completed!*", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
