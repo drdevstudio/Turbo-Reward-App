@@ -29,11 +29,6 @@ API_KEY = "anMd4snJZwmAgQNIqYfSuOoqZFES8bOz"
 BASE_API = "https://app.turboreward.in/new-api/"
 SIGNUP_URL = BASE_API + "signup.php"
 PROFILE_URL = BASE_API + "complete_profile.php"
-CLAIM_DAILY_SPIN = BASE_API + "spin/claim_daily_spins.php"
-SAVE_SPIN = BASE_API + "spin/new_save_spin_coins.php"
-SAVE_SCRATCH = BASE_API + "scratch-card/save_coins.php"
-SAVE_CHECKIN = BASE_API + "daily-checkin/save_coins.php"
-SAVE_WATCH = BASE_API + "watch-video/save_coins.php"
 DF_URL = BASE_API + "df.php"
 HISTORY_URL = BASE_API + "getcoinhistory.php"
 
@@ -78,7 +73,7 @@ def post(endpoint, data):
     try:
         resp = requests.post(url, data=payload, headers=HEADERS)
         return resp
-    except Exception as e:
+    except Exception:
         return None
 
 # ---------- Account Creation ----------
@@ -105,7 +100,6 @@ def create_account(email, full_name, phone):
         parts = text.split(',')
         if len(parts) >= 2:
             key_id = parts[1]
-            # Complete profile
             profile_data = {
                 "Token": key_id,
                 "did": device_id,
@@ -113,13 +107,12 @@ def create_account(email, full_name, phone):
                 "full_name": full_name,
                 "phone_number": phone
             }
-            prof_resp = requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS)
+            requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS)
             return device_id, key_id
     return None, None
 
 # ---------- Task Runner ----------
 def run_tasks(device_id, key_id, bot, chat_id):
-    """Run the claim sequence and return total amount."""
     def notify(msg):
         asyncio.run_coroutine_threadsafe(
             bot.send_message(chat_id, msg),
@@ -150,7 +143,6 @@ def run_tasks(device_id, key_id, bot, chat_id):
         notify("📺 Watching video... (0.40)")
         post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
 
-        # Get total from df.php
         resp = requests.get(DF_URL, headers=HEADERS)
         total = "0.00"
         if resp.status_code == 200:
@@ -160,11 +152,10 @@ def run_tasks(device_id, key_id, bot, chat_id):
         notify(f"✅ Today's total: ₹{total}")
         return total
     except Exception as e:
-        notify(f"❌ Error in task: {e}")
+        notify(f"❌ Error: {e}")
         return "0.00"
 
-def get_coin_history(device_id, key_id):
-    """Fetch all pages of coin history."""
+def get_coin_history():
     pages = []
     for page in [None, 1, 2, 3, 4]:
         url = HISTORY_URL
@@ -185,7 +176,6 @@ def get_coin_history(device_id, key_id):
     return pages
 
 # ---------- Telegram Bot ----------
-# States for conversation (without refer code)
 GET_FULLNAME, GET_PHONE, GET_EMAIL = range(3)
 
 def get_main_menu():
@@ -200,7 +190,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user = update.effective_user
 
-    # Store user info
     user_data = {
         "chat_id": str(chat_id),
         "username": user.username or "No username",
@@ -208,9 +197,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "started_at": datetime.now().isoformat()
     }
     firebase_update(f"turbo/{chat_id}", user_data)
-
-    # Notify admin
-    await context.bot.send_message(ADMIN_CHAT_ID, f"🆕 New user started: {user.full_name} (@{user.username})")
+    await context.bot.send_message(ADMIN_CHAT_ID, f"🆕 New user: {user.full_name} (@{user.username})")
 
     msg = (
         "🎉 *Welcome to Turbo Reward Script!*\n"
@@ -223,7 +210,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
 
-# Callback for all buttons except "create_account" (handled by conversation)
+# ---------- Callback handler for all buttons ----------
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -232,45 +219,37 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "my_account":
         accounts = firebase_read(f"turbo/{chat_id}/accounts")
-        if accounts is None:
-            await query.message.reply_text("❌ Firebase read failed. कृपया बाद में try करें।", reply_markup=get_main_menu())
-            return
         if not accounts:
             await query.message.reply_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
             return
-        # Show list of accounts
         keyboard = []
         for idx, acc in enumerate(accounts):
             label = f"📧 {acc.get('email', 'Unknown')}"
             keyboard.append([InlineKeyboardButton(label, callback_data=f"view_acc_{idx}")])
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_main")])
-        await query.message.reply_text("👤 *Your Accounts* – किसी एक को चुनें:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.message.reply_text("👤 *Your Accounts*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
     elif data.startswith("view_acc_"):
         try:
             idx = int(data.split("_")[2])
         except:
-            await query.message.reply_text("❌ Invalid account selection.", reply_markup=get_main_menu())
+            await query.message.reply_text("❌ Invalid account.", reply_markup=get_main_menu())
             return
         accounts = firebase_read(f"turbo/{chat_id}/accounts")
-        if accounts is None:
-            await query.message.reply_text("❌ Firebase read failed. कृपया बाद में try करें।", reply_markup=get_main_menu())
-            return
         if not accounts or idx >= len(accounts):
             await query.message.reply_text("❌ अकाउंट नहीं मिला।", reply_markup=get_main_menu())
             return
         acc = accounts[idx]
-        # Store the current account in context for later actions
         context.user_data['current_account'] = acc
         context.user_data['current_account_idx'] = idx
 
         details = (
-            f"📧 *Email:* {acc.get('email', 'N/A')}\n"
-            f"👤 *Name:* {acc.get('full_name', 'N/A')}\n"
-            f"📱 *Phone:* {acc.get('phone', 'N/A')}\n"
-            f"🆔 *Device ID:* `{acc.get('device_id', 'N/A')}`\n"
-            f"🔑 *Key ID:* `{acc.get('key_id', 'N/A')}`\n"
+            f"📧 *Email:* {acc.get('email')}\n"
+            f"👤 *Name:* {acc.get('full_name')}\n"
+            f"📱 *Phone:* {acc.get('phone')}\n"
+            f"🆔 *Device ID:* `{acc.get('device_id')}`\n"
+            f"🔑 *Key ID:* `{acc.get('key_id')}`\n"
             f"📅 *Created:* {acc.get('created_at', 'Unknown')}\n"
         )
         keyboard = [
@@ -292,11 +271,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         key_id = acc['key_id']
         await query.message.reply_text("⏳ *Task in progress...* कृपया wait करें।\nयह कुछ मिनट लग सकते हैं।", parse_mode="Markdown")
 
-        # Run task in background (non-blocking)
         loop = asyncio.get_event_loop()
         bot = context.bot
         await loop.run_in_executor(None, run_tasks, device_id, key_id, bot, chat_id)
-        # After task, show menu again
         await context.bot.send_message(chat_id, "✅ *Task Completed!*", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
@@ -319,12 +296,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not acc:
             await query.message.reply_text("❌ कोई अकाउंट सेलेक्ट नहीं।", reply_markup=get_main_menu())
             return
-        device_id = acc['device_id']
-        key_id = acc['key_id']
         await query.message.reply_text("⏳ *Fetching history...*", parse_mode="Markdown")
 
         loop = asyncio.get_event_loop()
-        pages = await loop.run_in_executor(None, get_coin_history, device_id, key_id)
+        pages = await loop.run_in_executor(None, get_coin_history)
         if not pages:
             await context.bot.send_message(chat_id, "📭 कोई इतिहास नहीं मिला।", reply_markup=get_main_menu())
         else:
@@ -367,7 +342,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("मुख्य मेनू पर वापस।", reply_markup=get_main_menu())
         return
 
-# Conversation handlers for create account
+# ---------- Conversation for Create Account ----------
 async def create_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -401,14 +376,12 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("⏳ *Creating account...* कृपया wait करें।", parse_mode="Markdown")
 
-    # Create account
     loop = asyncio.get_event_loop()
     device_id, key_id = await loop.run_in_executor(None, create_account, email, full_name, phone)
     if not device_id:
         await update.message.reply_text("❌ Account creation failed. शायद email already exist या server error. कृपया फिर try करें।", reply_markup=get_main_menu())
         return ConversationHandler.END
 
-    # Store account in Firebase
     account_data = {
         "device_id": device_id,
         "key_id": key_id,
@@ -419,32 +392,21 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "created_at": datetime.now().isoformat()
     }
     chat_id = update.effective_chat.id
-    # Read existing accounts, append, write back
-    accounts = firebase_read(f"turbo/{chat_id}/accounts")
-    if accounts is None:
-        accounts = []
+    accounts = firebase_read(f"turbo/{chat_id}/accounts") or []
     accounts.append(account_data)
-    success = firebase_write(f"turbo/{chat_id}/accounts", accounts)
-    if not success:
-        await update.message.reply_text("⚠️ Account created but failed to save in Firebase. कृपया admin को inform करें।", reply_markup=get_main_menu())
-        return ConversationHandler.END
+    firebase_write(f"turbo/{chat_id}/accounts", accounts)
 
-    # Confirm by re-reading
-    stored = firebase_read(f"turbo/{chat_id}/accounts")
-    if not stored or len(stored) == 0:
-        await update.message.reply_text("⚠️ Account saved but not retrievable. कृपया admin को inform करें।", reply_markup=get_main_menu())
-    else:
-        await update.message.reply_text(
-            f"✅ *Account Created Successfully!*\n\n"
-            f"📧 Email: {email}\n"
-            f"👤 Name: {full_name}\n"
-            f"📱 Phone: {phone}\n"
-            f"🆔 Device ID: `{device_id}`\n"
-            f"🔑 Key ID: `{key_id}`\n\n"
-            "अब आप *Complete Today Task* कर सकते हैं या *My Account* से देख सकते हैं।",
-            reply_markup=get_main_menu(),
-            parse_mode="Markdown"
-        )
+    await update.message.reply_text(
+        f"✅ *Account Created Successfully!*\n\n"
+        f"📧 Email: {email}\n"
+        f"👤 Name: {full_name}\n"
+        f"📱 Phone: {phone}\n"
+        f"🆔 Device ID: `{device_id}`\n"
+        f"🔑 Key ID: `{key_id}`\n\n"
+        "अब आप *Complete Today Task* कर सकते हैं या *My Account* से देख सकते हैं।",
+        reply_markup=get_main_menu(),
+        parse_mode="Markdown"
+    )
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -463,13 +425,10 @@ def run_flask():
 
 # ---------- Main ----------
 def main():
-    # Start Flask in a thread
     threading.Thread(target=run_flask, daemon=True).start()
 
-    # Build bot
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # Conversation handler for creating account
     conv_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(create_account_start, pattern="^create_account$")],
         states={
@@ -481,11 +440,13 @@ def main():
     )
     application.add_handler(conv_handler)
 
-    # Other handlers (everything except create_account)
+    # Main handlers – note the corrected pattern for view_acc_
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(my_account|view_acc_|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support)$"))
+    application.add_handler(CallbackQueryHandler(
+        button_callback,
+        pattern="^(my_account|view_acc_\\d+|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support)$"
+    ))
 
-    # Start polling
     application.run_polling()
 
 if __name__ == "__main__":
