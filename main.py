@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ---------- Version ----------
-BOT_VERSION = "3.0 - with estimated time"
+BOT_VERSION = "3.1 - fixed task claims"
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -72,7 +72,8 @@ def get_timestamp_ms():
 
 def post(endpoint, data, field='data'):
     url = BASE_API + endpoint
-    payload = {field: json.dumps(data)}
+    # Fix: Use separators=(',', ':') to strictly pack the JSON without spaces
+    payload = {field: json.dumps(data, separators=(',', ':'))}
     try:
         resp = requests.post(url, data=payload, headers=HEADERS, timeout=30)
         return resp
@@ -107,7 +108,8 @@ def create_account(email, full_name, phone):
     }
 
     try:
-        resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS, timeout=60)
+        # Use 'l' field for signup and tightly packed JSON
+        resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data, separators=(',', ':'))}, headers=HEADERS, timeout=60)
         if resp.status_code != 200:
             return None, None, None
         text = resp.text.strip()
@@ -122,7 +124,8 @@ def create_account(email, full_name, phone):
                     "full_name": full_name,
                     "phone_number": phone
                 }
-                requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS, timeout=30)
+                # Use 'l' field for profile
+                requests.post(PROFILE_URL, data={'l': json.dumps(profile_data, separators=(',', ':'))}, headers=HEADERS, timeout=30)
                 return device_id, base64_id, numeric_key
     except Exception as e:
         print(f"[ERROR] create_account: {e}")
@@ -131,6 +134,7 @@ def create_account(email, full_name, phone):
 # ---------- Balance Fetching ----------
 def get_balance(device_id, key_id):
     try:
+        # DF endpoint uses 'd'
         resp = post("df.php", {"device_id": device_id, "key_id": key_id}, field='d')
         if resp and resp.status_code == 200:
             parts = resp.text.split(',')
@@ -152,7 +156,8 @@ def get_coin_history(device_id, key_id):
         }
         endpoint = f"{HISTORY_URL}?page={page}" if page > 1 else HISTORY_URL
         try:
-            resp = requests.post(endpoint, data={'dataa': json.dumps(payload)}, headers=HEADERS, timeout=30)
+            # History endpoint uses 'dataa'
+            resp = requests.post(endpoint, data={'dataa': json.dumps(payload, separators=(',', ':'))}, headers=HEADERS, timeout=30)
             if resp.status_code == 200:
                 data = resp.json()
                 if data and len(data) > 0:
@@ -167,7 +172,7 @@ def get_coin_history(device_id, key_id):
             break
     return pages
 
-# ---------- Task Runner (with version debug & estimated time, accepts loop) ----------
+# ---------- Task Runner ----------
 def run_tasks(device_id, key_id, bot, chat_id, loop):
     def notify(msg):
         try:
@@ -178,53 +183,50 @@ def run_tasks(device_id, key_id, bot, chat_id, loop):
         except Exception as e:
             print(f"[ERROR] notify: {e}")
 
-    # Send version debug
     notify(f"🧪 DEBUG: Running version {BOT_VERSION}")
 
-    # Calculate estimated total time
     base_delays = [45, 60, 55, 75, 35]
     delays = [d + random.randint(-5, 5) for d in base_delays]
     total_seconds = sum(delays) + 10
     minutes = total_seconds // 60
     seconds = total_seconds % 60
 
-    # This is the message you were missing
     notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response as they happen.")
 
     try:
-        # 1) Claim daily spins
+        # 1) Claim daily spins (Field: 'data')
         notify("🔄 Claiming daily spins... (1/6)")
-        resp = post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
+        resp = post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()}, field='data')
         notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
         time.sleep(delays[0])
 
-        # 2) Save spin coin (0.99) - first
+        # 2) Save spin coin (0.99) - first (Field: 'data')
         notify("🎡 Spinning... (0.99) (2/6)")
-        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
+        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, field='data')
         notify(f"✅ Spin completed! (0.99)\n{print_response('Save Spin Coins (0.99)', resp)[:200]}")
         time.sleep(delays[1])
 
-        # 3) Save spin coin again (0.99) - second
+        # 3) Save spin coin again (0.99) - second (Field: 'data')
         notify("🎡 Spinning again... (0.99) (3/6)")
-        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
+        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, field='data')
         notify(f"✅ Second spin completed! (0.99)\n{print_response('Save Spin Coins (0.99) #2', resp)[:200]}")
         time.sleep(delays[2])
 
-        # 4) Save scratch card (0.22)
+        # 4) Save scratch card (0.22) (Field: 'data')
         notify("🪙 Scratching card... (0.22) (4/6)")
-        resp = post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
+        resp = post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, field='data')
         notify(f"✅ Scratch card completed! (0.22)\n{print_response('Save Scratch Coins (0.22)', resp)[:200]}")
         time.sleep(delays[3])
 
-        # 5) Save daily checkin (0.22)
+        # 5) Save daily checkin (0.22) (Field: 'data')
         notify("📅 Daily checkin... (0.22) (5/6)")
-        resp = post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
+        resp = post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, field='data')
         notify(f"✅ Daily checkin completed! (0.22)\n{print_response('Save Daily Checkin (0.22)', resp)[:200]}")
         time.sleep(delays[4])
 
-        # 6) Save watch video (0.40)
+        # 6) Save watch video (0.40) (Field: 'data')
         notify("📺 Watching video... (0.40) (6/6)")
-        resp = post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
+        resp = post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"}, field='data')
         notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
 
         balance = get_balance(device_id, key_id)
