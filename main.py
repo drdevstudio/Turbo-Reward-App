@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ---------- Version ----------
-BOT_VERSION = "2.0 - fixed task claims"
+BOT_VERSION = "3.2 - Fully Fixed & Debug Enabled"
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -72,7 +72,7 @@ def get_timestamp_ms():
 
 def post(endpoint, data, field='data'):
     url = BASE_API + endpoint
-    # Fix: Use separators=(',', ':') to strictly pack the JSON without spaces
+    # Task endpoints strongly require NO SPACES in JSON payload
     payload = {field: json.dumps(data, separators=(',', ':'))}
     try:
         resp = requests.post(url, data=payload, headers=HEADERS, timeout=30)
@@ -91,15 +91,17 @@ def print_response(label, resp):
         output += resp.text
     return output
 
-
 # ---------- Account Creation ----------
 def create_account(email, full_name, phone):
     device_id = generate_device_id()
     base64_id = generate_base64_id()
 
+    # Safety check: if REFER_CODE is empty, use "Demo"
+    refer = REFER_CODE if REFER_CODE else "Demo"
+
     signup_data = {
         "Login_Status": "Check",
-        "ReferCode": REFER_CODE,
+        "ReferCode": refer,
         "Signup_OTP": "123456",
         "Signup_Token": "yj2OCSrYU9K5bvqGs5Vt4F9dtHMaOwOk",
         "Token": "",
@@ -109,11 +111,11 @@ def create_account(email, full_name, phone):
     }
 
     try:
-        # FIX: Removed separators=(',', ':'). The signup API expects default spaces.
+        # Standard json.dumps (WITH spaces) for signup, as expected by this specific endpoint
         resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS, timeout=60)
         
         if resp.status_code != 200:
-            return None, None, None
+            return None, None, None, f"HTTP Error {resp.status_code}: {resp.text}"
             
         text = resp.text.strip()
         if "Login Successfully" in text or "Register Successfully" in text:
@@ -127,13 +129,15 @@ def create_account(email, full_name, phone):
                     "full_name": full_name,
                     "phone_number": phone
                 }
-                # FIX: Removed separators here as well.
-                requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS, timeout=30)
-                return device_id, base64_id, numeric_key
+                # Same here, keep standard spacing for profile endpoint
+                p_resp = requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS, timeout=30)
+                return device_id, base64_id, numeric_key, f"Success! Profile Resp: {p_resp.text}"
+            else:
+                return None, None, None, f"Parsing failed. Expected comma-separated string, got: {text}"
+        else:
+            return None, None, None, f"API Rejected Payload. Response: {text}"
     except Exception as e:
-        print(f"[ERROR] create_account: {e}")
-        
-    return None, None, None
+        return None, None, None, f"Python Exception: {str(e)}"
 
 # ---------- Balance Fetching ----------
 def get_balance(device_id, key_id):
@@ -160,7 +164,7 @@ def get_coin_history(device_id, key_id):
         }
         endpoint = f"{HISTORY_URL}?page={page}" if page > 1 else HISTORY_URL
         try:
-            # History endpoint uses 'dataa'
+            # History endpoint uses 'dataa' and tightly packed JSON
             resp = requests.post(endpoint, data={'dataa': json.dumps(payload, separators=(',', ':'))}, headers=HEADERS, timeout=30)
             if resp.status_code == 200:
                 data = resp.json()
@@ -350,7 +354,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         def task_wrapper():
             try:
-                # Pass the loop to run_tasks
                 run_tasks(device_id, key_id, bot, chat_id, loop)
             finally:
                 context.user_data['task_running'] = False
@@ -459,9 +462,15 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ *Creating account...* कृपया wait करें।", parse_mode="Markdown")
 
     loop = asyncio.get_event_loop()
-    device_id, base64_id, numeric_key = await loop.run_in_executor(None, create_account, email, full_name, phone)
+    device_id, base64_id, numeric_key, debug_msg = await loop.run_in_executor(None, create_account, email, full_name, phone)
+    
     if not device_id:
-        await update.message.reply_text("❌ Account creation failed. शायद email already exist या server error. कृपया फिर try करें।", reply_markup=get_main_menu())
+        error_text = (
+            f"❌ *Account creation failed!*\n\n"
+            f"🔍 *DEBUG INFO:*\n`{debug_msg}`\n\n"
+            f"शायद email already exist या server error. कृपया फिर try करें।"
+        )
+        await update.message.reply_text(error_text, reply_markup=get_main_menu(), parse_mode="Markdown")
         return ConversationHandler.END
 
     account_data = {
@@ -474,6 +483,7 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "refer_code": REFER_CODE,
         "created_at": datetime.now().isoformat()
     }
+    
     chat_id = update.effective_chat.id
     accounts = firebase_read(f"turbo/{chat_id}/accounts") or []
     accounts.append(account_data)
