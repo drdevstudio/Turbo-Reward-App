@@ -232,6 +232,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "my_account":
         accounts = firebase_read(f"turbo/{chat_id}/accounts")
+        if accounts is None:
+            await query.message.reply_text("❌ Firebase read failed. कृपया बाद में try करें।", reply_markup=get_main_menu())
+            return
         if not accounts:
             await query.message.reply_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
             return
@@ -245,8 +248,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif data.startswith("view_acc_"):
-        idx = int(data.split("_")[2])
+        try:
+            idx = int(data.split("_")[2])
+        except:
+            await query.message.reply_text("❌ Invalid account selection.", reply_markup=get_main_menu())
+            return
         accounts = firebase_read(f"turbo/{chat_id}/accounts")
+        if accounts is None:
+            await query.message.reply_text("❌ Firebase read failed. कृपया बाद में try करें।", reply_markup=get_main_menu())
+            return
         if not accounts or idx >= len(accounts):
             await query.message.reply_text("❌ अकाउंट नहीं मिला।", reply_markup=get_main_menu())
             return
@@ -409,23 +419,32 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "created_at": datetime.now().isoformat()
     }
     chat_id = update.effective_chat.id
+    # Read existing accounts, append, write back
     accounts = firebase_read(f"turbo/{chat_id}/accounts")
-    if not accounts:
+    if accounts is None:
         accounts = []
     accounts.append(account_data)
-    firebase_write(f"turbo/{chat_id}/accounts", accounts)
+    success = firebase_write(f"turbo/{chat_id}/accounts", accounts)
+    if not success:
+        await update.message.reply_text("⚠️ Account created but failed to save in Firebase. कृपया admin को inform करें।", reply_markup=get_main_menu())
+        return ConversationHandler.END
 
-    await update.message.reply_text(
-        f"✅ *Account Created Successfully!*\n\n"
-        f"📧 Email: {email}\n"
-        f"👤 Name: {full_name}\n"
-        f"📱 Phone: {phone}\n"
-        f"🆔 Device ID: `{device_id}`\n"
-        f"🔑 Key ID: `{key_id}`\n\n"
-        "अब आप *Complete Today Task* कर सकते हैं या *My Account* से देख सकते हैं।",
-        reply_markup=get_main_menu(),
-        parse_mode="Markdown"
-    )
+    # Confirm by re-reading
+    stored = firebase_read(f"turbo/{chat_id}/accounts")
+    if not stored or len(stored) == 0:
+        await update.message.reply_text("⚠️ Account saved but not retrievable. कृपया admin को inform करें।", reply_markup=get_main_menu())
+    else:
+        await update.message.reply_text(
+            f"✅ *Account Created Successfully!*\n\n"
+            f"📧 Email: {email}\n"
+            f"👤 Name: {full_name}\n"
+            f"📱 Phone: {phone}\n"
+            f"🆔 Device ID: `{device_id}`\n"
+            f"🔑 Key ID: `{key_id}`\n\n"
+            "अब आप *Complete Today Task* कर सकते हैं या *My Account* से देख सकते हैं।",
+            reply_markup=get_main_menu(),
+            parse_mode="Markdown"
+        )
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
