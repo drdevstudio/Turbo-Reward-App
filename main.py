@@ -45,7 +45,6 @@ HEADERS = {
 
 # ---------- Firebase Helpers ----------
 def firebase_read(path):
-    """Read data from Firebase."""
     url = f"{FIREBASE_URL}/{path}.json"
     resp = requests.get(url)
     if resp.status_code == 200:
@@ -53,24 +52,14 @@ def firebase_read(path):
     return None
 
 def firebase_write(path, data):
-    """Write data to Firebase (overwrites)."""
     url = f"{FIREBASE_URL}/{path}.json"
     resp = requests.put(url, json=data)
     return resp.status_code == 200
 
 def firebase_update(path, data):
-    """Update specific fields in Firebase."""
     url = f"{FIREBASE_URL}/{path}.json"
     resp = requests.patch(url, json=data)
     return resp.status_code == 200
-
-def firebase_push(path, data):
-    """Push a new child under path."""
-    url = f"{FIREBASE_URL}/{path}.json"
-    resp = requests.post(url, json=data)
-    if resp.status_code == 200:
-        return resp.json().get('name')  # the generated key
-    return None
 
 # ---------- Utility ----------
 def generate_device_id():
@@ -93,13 +82,13 @@ def post(endpoint, data):
         return None
 
 # ---------- Account Creation ----------
-def create_account(email, full_name, phone, refer_code):
+def create_account(email, full_name, phone):
     device_id = generate_device_id()
     id_b64 = generate_id()
 
     signup_data = {
         "Login_Status": "Check",
-        "ReferCode": refer_code or "Demo",
+        "ReferCode": REFER_CODE,
         "Signup_OTP": "123456",
         "Signup_Token": "yj2OCSrYU9K5bvqGs5Vt4F9dtHMaOwOk",
         "Token": "",
@@ -129,55 +118,55 @@ def create_account(email, full_name, phone, refer_code):
     return None, None
 
 # ---------- Task Runner ----------
-def run_tasks(device_id, key_id, progress_callback):
+def run_tasks(device_id, key_id, bot, chat_id):
     """Run the claim sequence and return total amount."""
     def notify(msg):
-        if progress_callback:
-            progress_callback(msg)
+        # Send progress message
+        asyncio.run_coroutine_threadsafe(
+            bot.send_message(chat_id, msg),
+            asyncio.get_event_loop()
+        )
 
-    # 1) Claim daily spins
-    notify("🌀 Claiming daily spins...")
-    post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
-    time.sleep(45)
+    try:
+        notify("🌀 Claiming daily spins...")
+        post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
+        time.sleep(45)
 
-    # 2) Save spin coin 0.99
-    notify("🎡 Spinning... (0.99)")
-    post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-    time.sleep(60)
+        notify("🎡 Spinning... (0.99)")
+        post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
+        time.sleep(60)
 
-    # 3) Save spin again 0.99
-    notify("🎡 Spinning again... (0.99)")
-    post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-    time.sleep(55)
+        notify("🎡 Spinning again... (0.99)")
+        post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
+        time.sleep(55)
 
-    # 4) Scratch card 0.22
-    notify("🪙 Scratching card... (0.22)")
-    post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-    time.sleep(75)
+        notify("🪙 Scratching card... (0.22)")
+        post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
+        time.sleep(75)
 
-    # 5) Daily checkin 0.22
-    notify("📅 Daily checkin... (0.22)")
-    post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-    time.sleep(35)
+        notify("📅 Daily checkin... (0.22)")
+        post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
+        time.sleep(35)
 
-    # 6) Watch video 0.40
-    notify("📺 Watching video... (0.40)")
-    post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
+        notify("📺 Watching video... (0.40)")
+        post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
 
-    # Get total from df.php
-    resp = requests.get(DF_URL, headers=HEADERS)
-    total = "0.00"
-    if resp.status_code == 200:
-        parts = resp.text.split(',')
-        if parts:
-            total = parts[0]
-    notify(f"✅ Today's total: ₹{total}")
-    return total
+        # Get total from df.php
+        resp = requests.get(DF_URL, headers=HEADERS)
+        total = "0.00"
+        if resp.status_code == 200:
+            parts = resp.text.split(',')
+            if parts:
+                total = parts[0]
+        notify(f"✅ Today's total: ₹{total}")
+        return total
+    except Exception as e:
+        notify(f"❌ Error in task: {e}")
+        return "0.00"
 
 def get_coin_history(device_id, key_id):
     """Fetch all pages of coin history."""
     pages = []
-    # First fetch without page
     for page in [None, 1, 2, 3, 4]:
         url = HISTORY_URL
         if page is not None:
@@ -189,7 +178,7 @@ def get_coin_history(device_id, key_id):
                 if data:
                     pages.append(data)
                 else:
-                    break  # empty response, stop
+                    break
             except:
                 break
         else:
@@ -197,8 +186,16 @@ def get_coin_history(device_id, key_id):
     return pages
 
 # ---------- Telegram Bot ----------
-# States
-SELECT_ACTION, CREATE_ACCOUNT, GET_REFER, GET_FULLNAME, GET_PHONE, GET_EMAIL = range(6)
+# States for conversation (without refer code)
+GET_FULLNAME, GET_PHONE, GET_EMAIL = range(3)
+
+def get_main_menu():
+    keyboard = [
+        [InlineKeyboardButton("➕ Create Account", callback_data="create_account")],
+        [InlineKeyboardButton("👤 My Account", callback_data="my_account")],
+        [InlineKeyboardButton("📞 Support", callback_data="support")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -225,49 +222,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔹 *Support* – किसी भी समस्या के लिए\n\n"
         "चुनें नीचे दिए गए बटन से 👇"
     )
-    keyboard = [
-        [InlineKeyboardButton("➕ Create Account", callback_data="create_account")],
-        [InlineKeyboardButton("👤 My Account", callback_data="my_account")],
-        [InlineKeyboardButton("🆘 Support", callback_data="support")]
-    ]
-    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
 
+# Callback for all buttons except "create_account" (handled by conversation)
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     chat_id = query.message.chat.id
 
-    if data == "create_account":
-        context.user_data['action'] = 'create'
-        await query.edit_message_text("📝 *Create Account*\n\nकृपया *Refer Code* डालें (Enter करें या डिफ़ॉल्ट के लिए):", parse_mode="Markdown")
-        return CREATE_ACCOUNT  # enter state GET_REFER
-
-    elif data == "my_account":
-        # Show list of accounts
+    if data == "my_account":
         accounts = firebase_read(f"turbo/{chat_id}/accounts")
         if not accounts:
-            await query.edit_message_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", parse_mode="Markdown")
-            return ConversationHandler.END
-        # Show as buttons
+            await query.message.reply_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
+            return
         keyboard = []
         for idx, acc in enumerate(accounts):
             label = f"📧 {acc.get('email', 'Unknown')}"
             keyboard.append([InlineKeyboardButton(label, callback_data=f"view_acc_{idx}")])
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_main")])
-        await query.edit_message_text("👤 *Your Accounts*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return SELECT_ACTION
+        await query.message.reply_text("👤 *Your Accounts*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
 
     elif data.startswith("view_acc_"):
         idx = int(data.split("_")[2])
         accounts = firebase_read(f"turbo/{chat_id}/accounts")
         if idx >= len(accounts):
-            await query.edit_message_text("❌ अकाउंट नहीं मिला।")
-            return SELECT_ACTION
+            await query.message.reply_text("❌ अकाउंट नहीं मिला।", reply_markup=get_main_menu())
+            return
         acc = accounts[idx]
         context.user_data['current_account'] = acc
         context.user_data['current_account_idx'] = idx
-        # Show account details
+
         details = (
             f"📧 *Email:* {acc.get('email')}\n"
             f"👤 *Name:* {acc.get('full_name')}\n"
@@ -283,62 +269,62 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")],
             [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
         ]
-        await query.edit_message_text(details, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return SELECT_ACTION
+        await query.message.reply_text(details, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
 
     elif data == "do_task":
         acc = context.user_data.get('current_account')
         if not acc:
-            await query.edit_message_text("❌ पहले कोई अकाउंट सेलेक्ट करें।")
-            return SELECT_ACTION
+            await query.message.reply_text("❌ पहले कोई अकाउंट सेलेक्ट करें।", reply_markup=get_main_menu())
+            return
         device_id = acc['device_id']
         key_id = acc['key_id']
-        await query.edit_message_text("⏳ *Task in progress...* कृपया wait करें।\nयह कुछ मिनट लग सकते हैं।", parse_mode="Markdown")
-        # Run task in background and send updates
-        async def send_progress(msg):
-            await context.bot.send_message(chat_id, msg)
+        await query.message.reply_text("⏳ *Task in progress...* कृपया wait करें।\nयह कुछ मिनट लग सकते हैं।", parse_mode="Markdown")
 
-        # Use asyncio.to_thread to run blocking task
+        # Run task in background (non-blocking)
         loop = asyncio.get_event_loop()
-        total = await loop.run_in_executor(None, run_tasks, device_id, key_id, send_progress)
-        await context.bot.send_message(chat_id, f"✅ *Task Completed!*\nTotal today: ₹{total}", parse_mode="Markdown")
-        # Update account balance in firebase? Not needed; balance is fetched via df.php
-        return SELECT_ACTION
+        bot = context.bot
+        await loop.run_in_executor(None, run_tasks, device_id, key_id, bot, chat_id)
+        # After task, show menu again
+        await context.bot.send_message(chat_id, "✅ *Task Completed!*", reply_markup=get_main_menu(), parse_mode="Markdown")
+        return
 
     elif data == "balance":
         acc = context.user_data.get('current_account')
         if not acc:
-            await query.edit_message_text("❌ कोई अकाउंट सेलेक्ट नहीं।")
-            return SELECT_ACTION
+            await query.message.reply_text("❌ कोई अकाउंट सेलेक्ट नहीं।", reply_markup=get_main_menu())
+            return
         resp = requests.get(DF_URL, headers=HEADERS)
         total = "0.00"
         if resp.status_code == 200:
             parts = resp.text.split(',')
             if parts:
                 total = parts[0]
-        await query.edit_message_text(f"💰 *Current Balance:* ₹{total}\n\n(यह df.php से fetch किया गया है)", parse_mode="Markdown")
-        return SELECT_ACTION
+        await query.message.reply_text(f"💰 *Current Balance:* ₹{total}\n\n(यह df.php से fetch किया गया है)", reply_markup=get_main_menu(), parse_mode="Markdown")
+        return
 
     elif data == "history":
         acc = context.user_data.get('current_account')
         if not acc:
-            await query.edit_message_text("❌ कोई अकाउंट सेलेक्ट नहीं।")
-            return SELECT_ACTION
+            await query.message.reply_text("❌ कोई अकाउंट सेलेक्ट नहीं।", reply_markup=get_main_menu())
+            return
         device_id = acc['device_id']
         key_id = acc['key_id']
-        await query.edit_message_text("⏳ *Fetching history...*")
+        await query.message.reply_text("⏳ *Fetching history...*", parse_mode="Markdown")
+
+        loop = asyncio.get_event_loop()
         pages = await loop.run_in_executor(None, get_coin_history, device_id, key_id)
         if not pages:
-            await context.bot.send_message(chat_id, "📭 कोई इतिहास नहीं मिला।")
+            await context.bot.send_message(chat_id, "📭 कोई इतिहास नहीं मिला।", reply_markup=get_main_menu())
         else:
             total_entries = sum(len(p) for p in pages)
-            await context.bot.send_message(chat_id, f"📜 *Coin History*\nTotal entries: {total_entries}\n\nपहले 3 पेज दिखाए जा रहे हैं।")
+            await context.bot.send_message(chat_id, f"📜 *Coin History*\nTotal entries: {total_entries}\n\nपहले 3 पेज दिखाए जा रहे हैं।", parse_mode="Markdown")
             for i, page in enumerate(pages[:3]):
                 msg = f"*Page {i+1}*\n" + json.dumps(page, indent=2)
                 if len(msg) > 4000:
-                    msg = msg[:4000] + "..."  # truncate
+                    msg = msg[:4000] + "..."
                 await context.bot.send_message(chat_id, msg, parse_mode="Markdown")
-        return SELECT_ACTION
+        return
 
     elif data == "withdraw":
         keyboard = [
@@ -350,42 +336,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("₹250", callback_data="withdraw_250")],
             [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
         ]
-        await query.edit_message_text("💸 *Withdraw Amount*\n\nअपनी राशि चुनें:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return SELECT_ACTION
+        await query.message.reply_text("💸 *Withdraw Amount*\n\nअपनी राशि चुनें:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
 
     elif data.startswith("withdraw_"):
         amount = data.split("_")[1]
-        await query.edit_message_text(f"❌ *Insufficient Balance!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस नहीं है।\n\nपहले *Complete Today Task* करें।", parse_mode="Markdown")
-        return SELECT_ACTION
+        await query.message.reply_text(f"❌ *Insufficient Balance!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस नहीं है।\n\nपहले *Complete Today Task* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
+        return
 
     elif data == "support":
-        await query.edit_message_text(
-            "🆘 *Support*\n\nकिसी भी समस्या के लिए DM करें:\n[@Hamza3895](https://t.me/Hamza3895)\n\nया ऐप का इस्तेमाल करें: [TurboReward](https://app.turboreward.in)",
+        await query.message.reply_text(
+            "📞 *Support*\n\nकिसी भी समस्या के लिए DM करें:\n[@Hamza3895](https://t.me/Hamza3895)\n\nया ऐप का इस्तेमाल करें: [TurboReward](https://app.turboreward.in)",
+            reply_markup=get_main_menu(),
             parse_mode="Markdown"
         )
-        return SELECT_ACTION
+        return
 
     elif data == "back_main":
-        await query.edit_message_text("मुख्य मेनू पर वापस।", reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Create Account", callback_data="create_account")],
-            [InlineKeyboardButton("👤 My Account", callback_data="my_account")],
-            [InlineKeyboardButton("🆘 Support", callback_data="support")]
-        ]))
-        return SELECT_ACTION
+        await query.message.reply_text("मुख्य मेनू पर वापस।", reply_markup=get_main_menu())
+        return
 
-    return SELECT_ACTION
-
-# Conversation for create account
+# Conversation handlers for create account
 async def create_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📝 *Create Account*\n\nकृपया *Refer Code* डालें (Enter करें या डिफ़ॉल्ट के लिए):", parse_mode="Markdown")
-    return GET_REFER
-
-async def get_refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    refer = update.message.text.strip()
-    if not refer:
-        refer = REFER_CODE
-    context.user_data['refer'] = refer
-    await update.message.reply_text("अब *Full Name* डालें:")
+    query = update.callback_query
+    await query.answer()
+    # Delete the button message if needed? We'll keep it.
+    await query.message.reply_text("📝 *Create Account*\n\nअपना *Full Name* डालें:", parse_mode="Markdown")
     return GET_FULLNAME
 
 async def get_fullname(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -409,19 +385,17 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return GET_EMAIL
     context.user_data['email'] = email
 
-    # Now create account
-    refer = context.user_data['refer']
     full_name = context.user_data['full_name']
     phone = context.user_data['phone']
     email = context.user_data['email']
 
-    await update.message.reply_text("⏳ *Creating account...* कृपया wait करें।")
+    await update.message.reply_text("⏳ *Creating account...* कृपया wait करें।", parse_mode="Markdown")
 
-    # Run in thread
+    # Create account
     loop = asyncio.get_event_loop()
-    device_id, key_id = await loop.run_in_executor(None, create_account, email, full_name, phone, refer)
+    device_id, key_id = await loop.run_in_executor(None, create_account, email, full_name, phone)
     if not device_id:
-        await update.message.reply_text("❌ Account creation failed. शायद email already exist या server error. कृपया फिर try करें।")
+        await update.message.reply_text("❌ Account creation failed. शायद email already exist या server error. कृपया फिर try करें।", reply_markup=get_main_menu())
         return ConversationHandler.END
 
     # Store account in Firebase
@@ -431,11 +405,10 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "email": email,
         "full_name": full_name,
         "phone": phone,
-        "refer_code": refer,
+        "refer_code": REFER_CODE,
         "created_at": datetime.now().isoformat()
     }
     chat_id = update.effective_chat.id
-    # Push to accounts list
     accounts = firebase_read(f"turbo/{chat_id}/accounts")
     if not accounts:
         accounts = []
@@ -450,19 +423,13 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🆔 Device ID: `{device_id}`\n"
         f"🔑 Key ID: `{key_id}`\n\n"
         "अब आप *Complete Today Task* कर सकते हैं या *My Account* से देख सकते हैं।",
+        reply_markup=get_main_menu(),
         parse_mode="Markdown"
     )
-    # Show menu again
-    keyboard = [
-        [InlineKeyboardButton("➕ Create Account", callback_data="create_account")],
-        [InlineKeyboardButton("👤 My Account", callback_data="my_account")],
-        [InlineKeyboardButton("🆘 Support", callback_data="support")]
-    ]
-    await update.message.reply_text("मुख्य मेनू:", reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Cancelled.")
+    await update.message.reply_text("❌ Cancelled.", reply_markup=get_main_menu())
     return ConversationHandler.END
 
 # ---------- Flask Server ----------
@@ -485,9 +452,8 @@ def main():
 
     # Conversation handler for creating account
     conv_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button_callback, pattern="^create_account$")],
+        entry_points=[CallbackQueryHandler(create_account_start, pattern="^create_account$")],
         states={
-            GET_REFER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_refer)],
             GET_FULLNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_fullname)],
             GET_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)],
             GET_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_email)],
@@ -496,9 +462,9 @@ def main():
     )
     application.add_handler(conv_handler)
 
-    # Other handlers
+    # Other handlers (everything except create_account)
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(my_account|support|view_acc_|do_task|balance|history|withdraw|back_main|withdraw_\\d+)$"))
+    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(my_account|view_acc_|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support)$"))
 
     # Start polling
     application.run_polling()
