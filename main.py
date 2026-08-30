@@ -91,6 +91,7 @@ def print_response(label, resp):
         output += resp.text
     return output
 
+
 # ---------- Account Creation ----------
 def create_account(email, full_name, phone):
     device_id = generate_device_id()
@@ -108,10 +109,12 @@ def create_account(email, full_name, phone):
     }
 
     try:
-        # Use 'l' field for signup and tightly packed JSON
-        resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data, separators=(',', ':'))}, headers=HEADERS, timeout=60)
+        # FIX: Removed separators=(',', ':'). The signup API expects default spaces.
+        resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS, timeout=60)
+        
         if resp.status_code != 200:
             return None, None, None
+            
         text = resp.text.strip()
         if "Login Successfully" in text or "Register Successfully" in text:
             parts = text.split(',')
@@ -124,11 +127,12 @@ def create_account(email, full_name, phone):
                     "full_name": full_name,
                     "phone_number": phone
                 }
-                # Use 'l' field for profile
-                requests.post(PROFILE_URL, data={'l': json.dumps(profile_data, separators=(',', ':'))}, headers=HEADERS, timeout=30)
+                # FIX: Removed separators here as well.
+                requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS, timeout=30)
                 return device_id, base64_id, numeric_key
     except Exception as e:
         print(f"[ERROR] create_account: {e}")
+        
     return None, None, None
 
 # ---------- Balance Fetching ----------
