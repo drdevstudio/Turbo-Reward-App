@@ -16,8 +16,9 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes
 )
 
-# ---------- Version ----------
-BOT_VERSION = "3.2 - Fully Fixed & Debug Enabled"
+# ---------- Version & Config ----------
+BOT_VERSION = "4.0 - Async Concurrency & Force Sub"
+CHANNEL_USERNAME = "@drdevstudio"
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -58,6 +59,27 @@ def firebase_update(path, data):
     url = f"{FIREBASE_URL}/{path}.json"
     resp = requests.patch(url, json=data)
     return resp.status_code == 200
+
+# ---------- Channel Force Sub Helper ----------
+async def is_user_subscribed(bot, user_id):
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
+        # 'restricted' usually means muted, but still in the channel.
+        return member.status in ['member', 'administrator', 'creator', 'restricted']
+    except Exception as e:
+        print(f"[ERROR] Sub check failed: {e}")
+        return False
+
+async def send_force_sub_message(message_obj):
+    keyboard = [
+        [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")],
+        [InlineKeyboardButton("✅ Verify", callback_data="verify_sub")]
+    ]
+    await message_obj.reply_text(
+        "❌ *Access Denied!*\n\nआपको पहले हमारा चैनल join करना होगा।\nकृपया चैनल join करें और 'Verify' पर क्लिक करें।",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 # ---------- Utility ----------
 def generate_device_id():
@@ -142,7 +164,6 @@ def create_account(email, full_name, phone):
 # ---------- Balance Fetching ----------
 def get_balance(device_id, key_id):
     try:
-        # DF endpoint uses 'd'
         resp = post("df.php", {"device_id": device_id, "key_id": key_id}, field='d')
         if resp and resp.status_code == 200:
             parts = resp.text.split(',')
@@ -164,7 +185,6 @@ def get_coin_history(device_id, key_id):
         }
         endpoint = f"{HISTORY_URL}?page={page}" if page > 1 else HISTORY_URL
         try:
-            # History endpoint uses 'dataa' and tightly packed JSON
             resp = requests.post(endpoint, data={'dataa': json.dumps(payload, separators=(',', ':'))}, headers=HEADERS, timeout=30)
             if resp.status_code == 200:
                 data = resp.json()
@@ -180,18 +200,15 @@ def get_coin_history(device_id, key_id):
             break
     return pages
 
-# ---------- Task Runner ----------
-def run_tasks(device_id, key_id, bot, chat_id, loop):
-    def notify(msg):
+# ---------- Fully Async Task Runner ----------
+async def run_tasks_async(device_id, key_id, bot, chat_id):
+    async def notify(msg):
         try:
-            asyncio.run_coroutine_threadsafe(
-                bot.send_message(chat_id, msg),
-                loop
-            )
+            await bot.send_message(chat_id, msg, parse_mode="Markdown")
         except Exception as e:
             print(f"[ERROR] notify: {e}")
 
-    notify(f"🧪 DEBUG: Running version {BOT_VERSION}")
+    await notify(f"🧪 DEBUG: Running version `{BOT_VERSION}`")
 
     base_delays = [45, 60, 55, 75, 35]
     delays = [d + random.randint(-5, 5) for d in base_delays]
@@ -199,52 +216,61 @@ def run_tasks(device_id, key_id, bot, chat_id, loop):
     minutes = total_seconds // 60
     seconds = total_seconds % 60
 
-    notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response as they happen.")
+    await notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response as they happen.")
 
     try:
-        # 1) Claim daily spins (Field: 'data')
-        notify("🔄 Claiming daily spins... (1/6)")
-        resp = post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()}, field='data')
-        notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
-        time.sleep(delays[0])
+        # Use asyncio.to_thread for HTTP requests so they don't block the bot
+        # Use asyncio.sleep so other users can use the bot simultaneously
+        
+        # 1) Claim daily spins
+        await notify("🔄 Claiming daily spins... (1/6)")
+        resp = await asyncio.to_thread(post, "spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()}, 'data')
+        await notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
+        await asyncio.sleep(delays[0])
 
-        # 2) Save spin coin (0.99) - first (Field: 'data')
-        notify("🎡 Spinning... (0.99) (2/6)")
-        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, field='data')
-        notify(f"✅ Spin completed! (0.99)\n{print_response('Save Spin Coins (0.99)', resp)[:200]}")
-        time.sleep(delays[1])
+        # 2) Save spin coin
+        await notify("🎡 Spinning... (0.99) (2/6)")
+        resp = await asyncio.to_thread(post, "spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, 'data')
+        await notify(f"✅ Spin completed! (0.99)\n{print_response('Save Spin Coins (0.99)', resp)[:200]}")
+        await asyncio.sleep(delays[1])
 
-        # 3) Save spin coin again (0.99) - second (Field: 'data')
-        notify("🎡 Spinning again... (0.99) (3/6)")
-        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, field='data')
-        notify(f"✅ Second spin completed! (0.99)\n{print_response('Save Spin Coins (0.99) #2', resp)[:200]}")
-        time.sleep(delays[2])
+        # 3) Second spin
+        await notify("🎡 Spinning again... (0.99) (3/6)")
+        resp = await asyncio.to_thread(post, "spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, 'data')
+        await notify(f"✅ Second spin completed! (0.99)\n{print_response('Save Spin Coins (0.99) #2', resp)[:200]}")
+        await asyncio.sleep(delays[2])
 
-        # 4) Save scratch card (0.22) (Field: 'data')
-        notify("🪙 Scratching card... (0.22) (4/6)")
-        resp = post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, field='data')
-        notify(f"✅ Scratch card completed! (0.22)\n{print_response('Save Scratch Coins (0.22)', resp)[:200]}")
-        time.sleep(delays[3])
+        # 4) Scratch
+        await notify("🪙 Scratching card... (0.22) (4/6)")
+        resp = await asyncio.to_thread(post, "scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, 'data')
+        await notify(f"✅ Scratch card completed! (0.22)\n{print_response('Save Scratch Coins (0.22)', resp)[:200]}")
+        await asyncio.sleep(delays[3])
 
-        # 5) Save daily checkin (0.22) (Field: 'data')
-        notify("📅 Daily checkin... (0.22) (5/6)")
-        resp = post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, field='data')
-        notify(f"✅ Daily checkin completed! (0.22)\n{print_response('Save Daily Checkin (0.22)', resp)[:200]}")
-        time.sleep(delays[4])
+        # 5) Checkin
+        await notify("📅 Daily checkin... (0.22) (5/6)")
+        resp = await asyncio.to_thread(post, "daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, 'data')
+        await notify(f"✅ Daily checkin completed! (0.22)\n{print_response('Save Daily Checkin (0.22)', resp)[:200]}")
+        await asyncio.sleep(delays[4])
 
-        # 6) Save watch video (0.40) (Field: 'data')
-        notify("📺 Watching video... (0.40) (6/6)")
-        resp = post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"}, field='data')
-        notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
+        # 6) Video
+        await notify("📺 Watching video... (0.40) (6/6)")
+        resp = await asyncio.to_thread(post, "watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"}, 'data')
+        await notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
 
-        balance = get_balance(device_id, key_id)
-        notify(f"🎉 *All tasks completed!*\nToday's total: ₹{balance}")
-        return balance
+        balance = await asyncio.to_thread(get_balance, device_id, key_id)
+        await notify(f"🎉 *All tasks completed!*\nToday's total: ₹{balance}")
+        
     except Exception as e:
-        notify(f"❌ Error: {e}")
-        return "0.00"
+        await notify(f"❌ Error: {e}")
 
-# ---------- Telegram Bot ----------
+# Async Wrapper to maintain background execution states
+async def do_tasks_wrapper(device_id, key_id, bot, chat_id, user_data):
+    try:
+        await run_tasks_async(device_id, key_id, bot, chat_id)
+    finally:
+        user_data['task_running'] = False
+
+# ---------- Telegram Bot GUI ----------
 GET_FULLNAME, GET_PHONE, GET_EMAIL = range(3)
 
 def get_main_menu():
@@ -254,6 +280,23 @@ def get_main_menu():
         [InlineKeyboardButton("📞 Support", callback_data="support")]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+async def show_main_menu(update, context, message_obj=None):
+    msg = (
+        "🎉 *Welcome to Turbo Reward Script!*\n"
+        "👨‍💻 Script by Dr. Dev || Dr. Hamza\n"
+        "📱 Official App: [TurboReward](https://app.turboreward.in)\n\n"
+        "🔹 *Create Account* – बनाएं नया अकाउंट\n"
+        "🔹 *My Account* – देखें अपने अकाउंट की डिटेल\n"
+        "🔹 *Support* – किसी भी समस्या के लिए\n\n"
+        "चुनें नीचे दिए गए बटन से 👇"
+    )
+    if message_obj:
+        await message_obj.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
+        await message_obj.reply_text(f"🤖 *Bot Version:* `{BOT_VERSION}`", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
+        await update.message.reply_text(f"🤖 *Bot Version:* `{BOT_VERSION}`", parse_mode="Markdown")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -265,29 +308,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "full_name": user.full_name or "No name",
         "started_at": datetime.now().isoformat()
     }
-    firebase_update(f"turbo/{chat_id}", user_data)
-    await context.bot.send_message(ADMIN_CHAT_ID, f"🆕 New user: {user.full_name} (@{user.username})")
+    
+    # Run fast background write so UI isn't blocked
+    await asyncio.to_thread(firebase_update, f"turbo/{chat_id}", user_data)
+    
+    try:
+        await context.bot.send_message(ADMIN_CHAT_ID, f"🆕 New user: {user.full_name} (@{user.username})")
+    except:
+        pass
 
-    msg = (
-        "🎉 *Welcome to Turbo Reward Script!*\n"
-        "👨‍💻 Script by Dr. Dev || Dr. Hamza\n"
-        "📱 Official App: [TurboReward](https://app.turboreward.in)\n\n"
-        "🔹 *Create Account* – बनाएं नया अकाउंट\n"
-        "🔹 *My Account* – देखें अपने अकाउंट की डिटेल\n"
-        "🔹 *Support* – किसी भी समस्या के लिए\n\n"
-        "चुनें नीचे दिए गए बटन से 👇"
-    )
-    await update.message.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
-    await update.message.reply_text(f"🤖 *Bot Version:* `{BOT_VERSION}`", parse_mode="Markdown")
+    # FORCE SUB CHECK
+    if not await is_user_subscribed(context.bot, user.id):
+        await send_force_sub_message(update.message)
+        return
+
+    await show_main_menu(update, context)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
     chat_id = query.message.chat.id
+    user_id = query.from_user.id
+
+    # Handle Verify Sub separately
+    if data == "verify_sub":
+        if await is_user_subscribed(context.bot, user_id):
+            try:
+                await query.message.delete()
+            except:
+                pass
+            await show_main_menu(update, context, query.message)
+        else:
+            await query.answer("❌ आपने अभी तक चैनल join नहीं किया है!", show_alert=True)
+        return
+
+    # Check sub for ALL other buttons
+    if not await is_user_subscribed(context.bot, user_id):
+        await send_force_sub_message(query.message)
+        return
 
     if data == "my_account":
-        accounts = firebase_read(f"turbo/{chat_id}/accounts")
+        accounts = await asyncio.to_thread(firebase_read, f"turbo/{chat_id}/accounts")
         if not accounts:
             await query.message.reply_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
             return
@@ -305,10 +367,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await query.message.reply_text("❌ Invalid account.", reply_markup=get_main_menu())
             return
-        accounts = firebase_read(f"turbo/{chat_id}/accounts")
+        accounts = await asyncio.to_thread(firebase_read, f"turbo/{chat_id}/accounts")
         if not accounts or idx >= len(accounts):
             await query.message.reply_text("❌ अकाउंट नहीं मिला।", reply_markup=get_main_menu())
             return
+            
         acc = accounts[idx]
         context.user_data['current_account'] = acc
         context.user_data['current_account_idx'] = idx
@@ -348,19 +411,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['task_running'] = True
         await query.message.reply_text("⏳ *Task started...*\nI'll send each API response as they happen.", parse_mode="Markdown")
 
-        # Get the current event loop
-        loop = asyncio.get_event_loop()
-        bot = context.bot
-
-        def task_wrapper():
-            try:
-                run_tasks(device_id, key_id, bot, chat_id, loop)
-            finally:
-                context.user_data['task_running'] = False
-
-        # Run the task in a thread
-        await loop.run_in_executor(None, task_wrapper)
-        await context.bot.send_message(chat_id, "✅ *Task Completed!*", reply_markup=get_main_menu(), parse_mode="Markdown")
+        # FIX: Launch as a completely non-blocking background async task
+        asyncio.create_task(do_tasks_wrapper(device_id, key_id, context.bot, chat_id, context.user_data))
         return
 
     elif data == "balance":
@@ -370,7 +422,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         device_id = acc['device_id']
         key_id = acc['base64_id']
-        balance = get_balance(device_id, key_id)
+        balance = await asyncio.to_thread(get_balance, device_id, key_id)
         await query.message.reply_text(f"💰 *Current Balance:* ₹{balance}", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
@@ -383,8 +435,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         key_id = acc['base64_id']
         await query.message.reply_text("⏳ *Fetching history...*", parse_mode="Markdown")
 
-        loop = asyncio.get_event_loop()
-        pages = await loop.run_in_executor(None, get_coin_history, device_id, key_id)
+        pages = await asyncio.to_thread(get_coin_history, device_id, key_id)
         if not pages:
             await context.bot.send_message(chat_id, "📭 कोई इतिहास नहीं मिला।", reply_markup=get_main_menu())
         else:
@@ -431,6 +482,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def create_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    # FORCE SUB CHECK
+    if not await is_user_subscribed(context.bot, query.from_user.id):
+        await send_force_sub_message(query.message)
+        return ConversationHandler.END
+
     await query.message.reply_text("📝 *Create Account*\n\nअपना *Full Name* डालें:", parse_mode="Markdown")
     return GET_FULLNAME
 
@@ -459,13 +516,11 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = context.user_data['phone']
     email = context.user_data['email']
 
-    await update.message.reply_text("⏳ *Creating account...* कृपया wait करें।", parse_mode="Markdown")
+    await update.message.reply_text("⏳ <b>Creating account...</b> कृपया wait करें।", parse_mode="HTML")
 
-    loop = asyncio.get_event_loop()
-    device_id, base64_id, numeric_key, debug_msg = await loop.run_in_executor(None, create_account, email, full_name, phone)
+    device_id, base64_id, numeric_key, debug_msg = await asyncio.to_thread(create_account, email, full_name, phone)
     
     if not device_id:
-        # FIX: Changed to HTML to safely handle unexpected API characters
         error_text = (
             f"❌ <b>Account creation failed!</b>\n\n"
             f"🔍 <b>DEBUG INFO:</b>\n<code>{debug_msg}</code>\n\n"
@@ -486,11 +541,10 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     chat_id = update.effective_chat.id
-    accounts = firebase_read(f"turbo/{chat_id}/accounts") or []
+    accounts = await asyncio.to_thread(firebase_read, f"turbo/{chat_id}/accounts") or []
     accounts.append(account_data)
-    firebase_write(f"turbo/{chat_id}/accounts", accounts)
+    await asyncio.to_thread(firebase_write, f"turbo/{chat_id}/accounts", accounts)
 
-    # FIX: Changed to HTML. Markdown breaks if the email contains an underscore (e.g. name_123@gmail.com)
     success_msg = (
         f"✅ <b>Account Created Successfully!</b>\n\n"
         f"📧 Email: {email}\n"
@@ -506,11 +560,9 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(success_msg, reply_markup=get_main_menu(), parse_mode="HTML")
     except Exception as e:
         print(f"[ERROR] Failed to send success message: {e}")
-        # Fallback if there's still an unexpected parsing issue
         await update.message.reply_text("✅ Account Created Successfully! (Check 'My Account')", reply_markup=get_main_menu())
 
     return ConversationHandler.END
-
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Cancelled.", reply_markup=get_main_menu())
@@ -546,7 +598,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(
         button_callback,
-        pattern="^(my_account|view_acc_\\d+|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support)$"
+        pattern="^(my_account|view_acc_\\d+|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support|verify_sub)$"
     ))
 
     application.run_polling()
