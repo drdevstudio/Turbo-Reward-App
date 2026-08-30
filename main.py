@@ -77,6 +77,16 @@ def post(endpoint, data, field='data'):
         print(f"[ERROR] post to {endpoint}: {e}")
         return None
 
+def print_response(label, resp):
+    if resp is None:
+        return f"{label}: No response"
+    output = f"{label} [Status {resp.status_code}]\n"
+    try:
+        output += json.dumps(resp.json(), indent=2)
+    except:
+        output += resp.text
+    return output
+
 # ---------- Account Creation ----------
 def create_account(email, full_name, phone):
     device_id = generate_device_id()
@@ -154,7 +164,7 @@ def get_coin_history(device_id, key_id):
             break
     return pages
 
-# ---------- Task Runner (with API responses) ----------
+# ---------- Task Runner (EXACTLY matching the user's working script) ----------
 def run_tasks(device_id, key_id, bot, chat_id):
     def notify(msg):
         asyncio.run_coroutine_threadsafe(
@@ -162,54 +172,50 @@ def run_tasks(device_id, key_id, bot, chat_id):
             asyncio.get_event_loop()
         )
 
-    # Calculate estimated total time
-    delays = [random.randint(40, 90) for _ in range(6)]
-    total_seconds = sum(delays) + 30
+    # Use the user's exact delays (with small random variation for realism)
+    delays = [45, 60, 55, 75, 35]
+    # Add random variation (±5 seconds) to look natural
+    delays = [d + random.randint(-5, 5) for d in delays]
+    total_seconds = sum(delays) + 10  # extra for API calls
     minutes = total_seconds // 60
     seconds = total_seconds % 60
     notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response.")
 
     try:
-        # Step 1: Claim daily spins
+        # 1) Claim daily spins
         notify("🔄 Claiming daily spins... (1/6)")
         resp = post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
-        if resp:
-            notify(f"✅ Daily spins claimed!\nResponse: {resp.text[:200]}")
+        notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
         time.sleep(delays[0])
 
-        # Step 2: Spin 1
+        # 2) Save spin coin (0.99) - first
         notify("🎡 Spinning... (0.99) (2/6)")
         resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-        if resp:
-            notify(f"✅ Spin completed! (0.99)\nResponse: {resp.text[:200]}")
+        notify(f"✅ Spin completed! (0.99)\n{print_response('Save Spin Coins (0.99)', resp)[:200]}")
         time.sleep(delays[1])
 
-        # Step 3: Spin 2
+        # 3) Save spin coin again (0.99) - second
         notify("🎡 Spinning again... (0.99) (3/6)")
         resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-        if resp:
-            notify(f"✅ Second spin completed! (0.99)\nResponse: {resp.text[:200]}")
+        notify(f"✅ Second spin completed! (0.99)\n{print_response('Save Spin Coins (0.99) #2', resp)[:200]}")
         time.sleep(delays[2])
 
-        # Step 4: Scratch card
+        # 4) Save scratch card (0.22)
         notify("🪙 Scratching card... (0.22) (4/6)")
         resp = post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-        if resp:
-            notify(f"✅ Scratch card completed! (0.22)\nResponse: {resp.text[:200]}")
+        notify(f"✅ Scratch card completed! (0.22)\n{print_response('Save Scratch Coins (0.22)', resp)[:200]}")
         time.sleep(delays[3])
 
-        # Step 5: Daily checkin
+        # 5) Save daily checkin (0.22)
         notify("📅 Daily checkin... (0.22) (5/6)")
         resp = post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-        if resp:
-            notify(f"✅ Daily checkin completed! (0.22)\nResponse: {resp.text[:200]}")
+        notify(f"✅ Daily checkin completed! (0.22)\n{print_response('Save Daily Checkin (0.22)', resp)[:200]}")
         time.sleep(delays[4])
 
-        # Step 6: Watch video
+        # 6) Save watch video (0.40) - user's script uses 0.40
         notify("📺 Watching video... (0.40) (6/6)")
         resp = post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
-        if resp:
-            notify(f"✅ Video watched! (0.40)\nResponse: {resp.text[:200]}")
+        notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
 
         # Get final balance
         balance = get_balance(device_id, key_id)
@@ -433,7 +439,6 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("⏳ *Creating account...* कृपया wait करें।", parse_mode="Markdown")
 
-    # Run account creation in a separate thread to avoid blocking
     loop = asyncio.get_event_loop()
     device_id, base64_id, numeric_key = await loop.run_in_executor(None, create_account, email, full_name, phone)
     if not device_id:
