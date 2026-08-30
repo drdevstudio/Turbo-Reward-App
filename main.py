@@ -94,32 +94,25 @@ def create_account(email, full_name, phone):
     }
 
     try:
-        resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS, timeout=30)
-    except Exception as e:
-        print(f"[ERROR] Signup: {e}")
-        return None, None, None
-
-    if resp.status_code != 200:
-        return None, None, None
-
-    text = resp.text.strip()
-    if "Login Successfully" in text or "Register Successfully" in text:
-        parts = text.split(',')
-        if len(parts) >= 2:
-            numeric_key = parts[1]
-            profile_data = {
-                "Token": numeric_key,
-                "did": device_id,
-                "email_id": email,
-                "full_name": full_name,
-                "phone_number": phone
-            }
-            try:
+        resp = requests.post(SIGNUP_URL, data={'l': json.dumps(signup_data)}, headers=HEADERS, timeout=60)
+        if resp.status_code != 200:
+            return None, None, None
+        text = resp.text.strip()
+        if "Login Successfully" in text or "Register Successfully" in text:
+            parts = text.split(',')
+            if len(parts) >= 2:
+                numeric_key = parts[1]
+                profile_data = {
+                    "Token": numeric_key,
+                    "did": device_id,
+                    "email_id": email,
+                    "full_name": full_name,
+                    "phone_number": phone
+                }
                 requests.post(PROFILE_URL, data={'l': json.dumps(profile_data)}, headers=HEADERS, timeout=30)
-            except Exception as e:
-                print(f"[ERROR] Profile: {e}")
-                return None, None, None
-            return device_id, base64_id, numeric_key
+                return device_id, base64_id, numeric_key
+    except Exception as e:
+        print(f"[ERROR] create_account: {e}")
     return None, None, None
 
 # ---------- Balance Fetching ----------
@@ -129,7 +122,7 @@ def get_balance(device_id, key_id):
         if resp and resp.status_code == 200:
             parts = resp.text.split(',')
             if parts:
-                return parts[0]  # first value is the balance
+                return parts[0]
     except Exception as e:
         print(f"[ERROR] Balance: {e}")
     return "0.00"
@@ -144,11 +137,7 @@ def get_coin_history(device_id, key_id):
             "key_id": key_id,
             "milisecond": get_timestamp_ms()
         }
-        if page == 1:
-            # first page without ?page
-            endpoint = HISTORY_URL
-        else:
-            endpoint = f"{HISTORY_URL}?page={page}"
+        endpoint = f"{HISTORY_URL}?page={page}" if page > 1 else HISTORY_URL
         try:
             resp = requests.post(endpoint, data={'dataa': json.dumps(payload)}, headers=HEADERS, timeout=30)
             if resp.status_code == 200:
@@ -157,7 +146,7 @@ def get_coin_history(device_id, key_id):
                     pages.append(data)
                     page += 1
                 else:
-                    break  # empty array, stop
+                    break
             else:
                 break
         except Exception as e:
@@ -165,7 +154,7 @@ def get_coin_history(device_id, key_id):
             break
     return pages
 
-# ---------- Task Runner (with estimated time & progress) ----------
+# ---------- Task Runner (with API responses) ----------
 def run_tasks(device_id, key_id, bot, chat_id):
     def notify(msg):
         asyncio.run_coroutine_threadsafe(
@@ -173,48 +162,54 @@ def run_tasks(device_id, key_id, bot, chat_id):
             asyncio.get_event_loop()
         )
 
-    # Calculate estimated total time (sum of random delays)
+    # Calculate estimated total time
     delays = [random.randint(40, 90) for _ in range(6)]
-    total_seconds = sum(delays) + 30  # extra for API calls
+    total_seconds = sum(delays) + 30
     minutes = total_seconds // 60
     seconds = total_seconds % 60
-    notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll notify you after each step.")
+    notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response.")
 
     try:
         # Step 1: Claim daily spins
         notify("🔄 Claiming daily spins... (1/6)")
-        post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
-        notify("✅ Daily spins claimed! (1/6)")
+        resp = post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
+        if resp:
+            notify(f"✅ Daily spins claimed!\nResponse: {resp.text[:200]}")
         time.sleep(delays[0])
 
         # Step 2: Spin 1
         notify("🎡 Spinning... (0.99) (2/6)")
-        post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-        notify("✅ Spin completed! (0.99) (2/6)")
+        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
+        if resp:
+            notify(f"✅ Spin completed! (0.99)\nResponse: {resp.text[:200]}")
         time.sleep(delays[1])
 
         # Step 3: Spin 2
         notify("🎡 Spinning again... (0.99) (3/6)")
-        post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
-        notify("✅ Second spin completed! (0.99) (3/6)")
+        resp = post("spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"})
+        if resp:
+            notify(f"✅ Second spin completed! (0.99)\nResponse: {resp.text[:200]}")
         time.sleep(delays[2])
 
         # Step 4: Scratch card
         notify("🪙 Scratching card... (0.22) (4/6)")
-        post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-        notify("✅ Scratch card completed! (0.22) (4/6)")
+        resp = post("scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
+        if resp:
+            notify(f"✅ Scratch card completed! (0.22)\nResponse: {resp.text[:200]}")
         time.sleep(delays[3])
 
         # Step 5: Daily checkin
         notify("📅 Daily checkin... (0.22) (5/6)")
-        post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
-        notify("✅ Daily checkin completed! (0.22) (5/6)")
+        resp = post("daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"})
+        if resp:
+            notify(f"✅ Daily checkin completed! (0.22)\nResponse: {resp.text[:200]}")
         time.sleep(delays[4])
 
         # Step 6: Watch video
         notify("📺 Watching video... (0.40) (6/6)")
-        post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
-        notify("✅ Video watched! (0.40) (6/6)")
+        resp = post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
+        if resp:
+            notify(f"✅ Video watched! (0.40)\nResponse: {resp.text[:200]}")
 
         # Get final balance
         balance = get_balance(device_id, key_id)
@@ -312,9 +307,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif data == "do_task":
-        # Check if a task is already running for this user
         if context.user_data.get('task_running', False):
-            await query.message.reply_text("⏳ *Task already in progress!*\nकृपया wait करें जब तक current task complete न हो जाए।", parse_mode="Markdown")
+            await query.message.reply_text("⏳ *Task already in progress!*\nकृपया wait करें।", parse_mode="Markdown")
             return
 
         acc = context.user_data.get('current_account')
@@ -325,23 +319,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         device_id = acc['device_id']
         key_id = acc['base64_id']
 
-        # Set task_running flag
         context.user_data['task_running'] = True
-        await query.message.reply_text("⏳ *Task started...*\nI'll send updates as each step completes.", parse_mode="Markdown")
+        await query.message.reply_text("⏳ *Task started...*\nI'll send each API response as they happen.", parse_mode="Markdown")
 
         loop = asyncio.get_event_loop()
         bot = context.bot
-        # Run task in thread, pass flag to clear when done
+
         def task_wrapper():
             try:
-                result = run_tasks(device_id, key_id, bot, chat_id)
+                run_tasks(device_id, key_id, bot, chat_id)
             finally:
-                # Clear flag after task completes (success or error)
                 context.user_data['task_running'] = False
-            return result
 
         await loop.run_in_executor(None, task_wrapper)
-        # After task, show menu again
         await context.bot.send_message(chat_id, "✅ *Task Completed!*", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
@@ -443,6 +433,7 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("⏳ *Creating account...* कृपया wait करें।", parse_mode="Markdown")
 
+    # Run account creation in a separate thread to avoid blocking
     loop = asyncio.get_event_loop()
     device_id, base64_id, numeric_key = await loop.run_in_executor(None, create_account, email, full_name, phone)
     if not device_id:
