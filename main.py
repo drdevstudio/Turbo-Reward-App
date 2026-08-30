@@ -164,7 +164,7 @@ def get_coin_history(device_id, key_id):
             break
     return pages
 
-# ---------- Task Runner (EXACTLY matching the user's working script) ----------
+# ---------- Task Runner (with estimated time & proper order) ----------
 def run_tasks(device_id, key_id, bot, chat_id):
     def notify(msg):
         asyncio.run_coroutine_threadsafe(
@@ -172,17 +172,19 @@ def run_tasks(device_id, key_id, bot, chat_id):
             asyncio.get_event_loop()
         )
 
-    # Use the user's exact delays (with small random variation for realism)
-    delays = [45, 60, 55, 75, 35]
-    # Add random variation (±5 seconds) to look natural
-    delays = [d + random.randint(-5, 5) for d in delays]
-    total_seconds = sum(delays) + 10  # extra for API calls
+    # Base delays from user's working script
+    base_delays = [45, 60, 55, 75, 35]
+    # Add small variation for realism
+    delays = [d + random.randint(-5, 5) for d in base_delays]
+    total_seconds = sum(delays) + 10
     minutes = total_seconds // 60
     seconds = total_seconds % 60
-    notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response.")
+
+    # Send estimated time first
+    notify(f"⏳ *Task started!*\nEstimated time: ~{minutes}m {seconds}s\n\nI'll send each API response as they happen.")
 
     try:
-        # 1) Claim daily spins
+        # 1) Claim daily spins (FIRST STEP)
         notify("🔄 Claiming daily spins... (1/6)")
         resp = post("spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()})
         notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
@@ -212,7 +214,7 @@ def run_tasks(device_id, key_id, bot, chat_id):
         notify(f"✅ Daily checkin completed! (0.22)\n{print_response('Save Daily Checkin (0.22)', resp)[:200]}")
         time.sleep(delays[4])
 
-        # 6) Save watch video (0.40) - user's script uses 0.40
+        # 6) Save watch video (0.40)
         notify("📺 Watching video... (0.40) (6/6)")
         resp = post("watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"})
         notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
@@ -225,7 +227,7 @@ def run_tasks(device_id, key_id, bot, chat_id):
         notify(f"❌ Error: {e}")
         return "0.00"
 
-# ---------- Telegram Bot ----------
+# ---------- Telegram Bot (rest unchanged) ----------
 GET_FULLNAME, GET_PHONE, GET_EMAIL = range(3)
 
 def get_main_menu():
