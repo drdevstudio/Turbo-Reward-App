@@ -17,9 +17,9 @@ from telegram.ext import (
 )
 
 # ---------- Version & Config ----------
-BOT_VERSION = "4.1 - Multi-Channel Force Sub"
+BOT_VERSION = "2.0 Turbo Reward All Task Bypass"
 # Add as many channels as you want to this list
-CHANNELS = ["@drdevstudio", "@Zxkaimod"]
+CHANNELS = ["@drdevstudio", "@zxkaiinfo"]
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
