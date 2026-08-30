@@ -121,7 +121,6 @@ def create_account(email, full_name, phone):
 def run_tasks(device_id, key_id, bot, chat_id):
     """Run the claim sequence and return total amount."""
     def notify(msg):
-        # Send progress message
         asyncio.run_coroutine_threadsafe(
             bot.send_message(chat_id, msg),
             asyncio.get_event_loop()
@@ -236,30 +235,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not accounts:
             await query.message.reply_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
             return
+        # Show list of accounts
         keyboard = []
         for idx, acc in enumerate(accounts):
             label = f"📧 {acc.get('email', 'Unknown')}"
             keyboard.append([InlineKeyboardButton(label, callback_data=f"view_acc_{idx}")])
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_main")])
-        await query.message.reply_text("👤 *Your Accounts*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.message.reply_text("👤 *Your Accounts* – किसी एक को चुनें:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
     elif data.startswith("view_acc_"):
         idx = int(data.split("_")[2])
         accounts = firebase_read(f"turbo/{chat_id}/accounts")
-        if idx >= len(accounts):
+        if not accounts or idx >= len(accounts):
             await query.message.reply_text("❌ अकाउंट नहीं मिला।", reply_markup=get_main_menu())
             return
         acc = accounts[idx]
+        # Store the current account in context for later actions
         context.user_data['current_account'] = acc
         context.user_data['current_account_idx'] = idx
 
         details = (
-            f"📧 *Email:* {acc.get('email')}\n"
-            f"👤 *Name:* {acc.get('full_name')}\n"
-            f"📱 *Phone:* {acc.get('phone')}\n"
-            f"🆔 *Device ID:* `{acc.get('device_id')}`\n"
-            f"🔑 *Key ID:* `{acc.get('key_id')}`\n"
+            f"📧 *Email:* {acc.get('email', 'N/A')}\n"
+            f"👤 *Name:* {acc.get('full_name', 'N/A')}\n"
+            f"📱 *Phone:* {acc.get('phone', 'N/A')}\n"
+            f"🆔 *Device ID:* `{acc.get('device_id', 'N/A')}`\n"
+            f"🔑 *Key ID:* `{acc.get('key_id', 'N/A')}`\n"
             f"📅 *Created:* {acc.get('created_at', 'Unknown')}\n"
         )
         keyboard = [
@@ -360,7 +361,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def create_account_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    # Delete the button message if needed? We'll keep it.
     await query.message.reply_text("📝 *Create Account*\n\nअपना *Full Name* डालें:", parse_mode="Markdown")
     return GET_FULLNAME
 
