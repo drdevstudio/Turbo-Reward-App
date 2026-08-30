@@ -19,7 +19,7 @@ from telegram.ext import (
 # ---------- Version & Config ----------
 BOT_VERSION = "2.0 Turbo Reward All Task Bypass"
 # Add as many channels as you want to this list
-CHANNELS = ["@drdevstudio", "@zxkaiinfo"]
+CHANNELS = ["@drdevstudio", "@Zxkaimod"]
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -324,6 +324,60 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await show_main_menu(update, context)
 
+# ---------- Broadcast Command ----------
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    if chat_id != str(ADMIN_CHAT_ID):
+        await update.message.reply_text("❌ You are not authorized to use this command.")
+        return
+
+    is_reply = bool(update.message.reply_to_message)
+    has_text = bool(context.args)
+
+    if not is_reply and not has_text:
+        await update.message.reply_text(
+            "⚠️ *Usage:*\n"
+            "1. Reply to any message (text, photo, video) with `/broadcast`\n"
+            "2. Or type directly: `/broadcast Your message here`",
+            parse_mode="Markdown"
+        )
+        return
+
+    status_msg = await update.message.reply_text("⏳ *Starting broadcast...*", parse_mode="Markdown")
+
+    users = await asyncio.to_thread(firebase_read, "turbo")
+    if not users or not isinstance(users, dict):
+        await status_msg.edit_text("❌ No users found in database.")
+        return
+
+    message_text = update.message.text.partition(' ')[2] if has_text else None
+    success_count = 0
+    fail_count = 0
+
+    for user_id_str in users.keys():
+        try:
+            if is_reply:
+                # Accurately copy pictures, videos, and texts when replying
+                await context.bot.copy_message(
+                    chat_id=user_id_str,
+                    from_chat_id=update.message.chat_id,
+                    message_id=update.message.reply_to_message.message_id
+                )
+            else:
+                try:
+                    await context.bot.send_message(chat_id=user_id_str, text=message_text, parse_mode="Markdown")
+                except:
+                    # Fallback to standard text if markdown parsing fails
+                    await context.bot.send_message(chat_id=user_id_str, text=message_text)
+            
+            success_count += 1
+            await asyncio.sleep(0.05) # Prevent Telegram flood limits (approx 20 msgs/second)
+        except Exception as e:
+            fail_count += 1
+
+    await status_msg.edit_text(f"✅ *Broadcast Complete!*\n\n🟢 Success: {success_count}\n🔴 Failed: {fail_count}", parse_mode="Markdown")
+
+
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -460,7 +514,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("withdraw_"):
         amount = data.split("_")[1]
-        await query.message.reply_text(f"❌ *Insufficient Balance!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस नहीं है।\n\nपहले *Complete Today Task* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await query.message.reply_text(f"❌ *Insufficient Balance!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस কমপক্ষে नहीं है।\n\nपहले *Complete Today Task* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
     elif data == "support":
@@ -512,7 +566,7 @@ async def get_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = context.user_data['phone']
     email = context.user_data['email']
 
-    await update.message.reply_text("⏳ <b>Creating account...</b> कृपया wait करें。", parse_mode="HTML")
+    await update.message.reply_text("⏳ <b>Creating account...</b> कृपया wait करें।", parse_mode="HTML")
 
     device_id, base64_id, numeric_key, debug_msg = await asyncio.to_thread(create_account, email, full_name, phone)
     
@@ -592,6 +646,9 @@ def main():
     application.add_handler(conv_handler)
 
     application.add_handler(CommandHandler("start", start))
+    # Register the broadcast command handler
+    application.add_handler(CommandHandler("broadcast", broadcast))
+
     application.add_handler(CallbackQueryHandler(
         button_callback,
         pattern="^(my_account|view_acc_\\d+|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support|verify_sub)$"
