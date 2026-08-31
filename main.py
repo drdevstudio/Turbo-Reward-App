@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ---------- Version & Config ----------
-BOT_VERSION = "3.0 Turbo Reward All Task Bypass"
+BOT_VERSION = "4.0 Turbo Reward All Task Bypass"
 # Add as many channels as you want to this list
 CHANNELS = ["@drdevstudio", "@zxkaiinfo"]
 
@@ -216,7 +216,8 @@ async def run_tasks_async(device_id, key_id, bot, chat_id):
 
     await notify(f"🧪 DEBUG: Running version `{BOT_VERSION}`")
 
-    base_delays = [45, 60, 55, 75, 35]
+    # 4 delay blocks for 5 tasks
+    base_delays = [45, 60, 45, 35]
     delays = [d + random.randint(-5, 5) for d in base_delays]
     total_seconds = sum(delays) + 10
     minutes = total_seconds // 60
@@ -226,42 +227,36 @@ async def run_tasks_async(device_id, key_id, bot, chat_id):
 
     try:
         # 1) Claim daily spins
-        await notify("🔄 Claiming daily spins... (1/6)")
+        await notify("🔄 Claiming daily spins... (1/5)")
         resp = await asyncio.to_thread(post, "spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()}, 'data')
         await notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
         await asyncio.sleep(delays[0])
 
-        # 2) Save spin coin
-        await notify("🎡 Spinning... (0.99) (2/6)")
+        # 2) Save spin coin (0.99) - ONE TIME
+        await notify("🎡 Spinning... (0.99) (2/5)")
         resp = await asyncio.to_thread(post, "spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, 'data')
         await notify(f"✅ Spin completed! (0.99)\n{print_response('Save Spin Coins (0.99)', resp)[:200]}")
         await asyncio.sleep(delays[1])
 
-        # 3) Second spin
-        await notify("🎡 Spinning again... (0.99) (3/6)")
-        resp = await asyncio.to_thread(post, "spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, 'data')
-        await notify(f"✅ Second spin completed! (0.99)\n{print_response('Save Spin Coins (0.99) #2', resp)[:200]}")
-        await asyncio.sleep(delays[2])
-
-        # 4) Scratch
-        await notify("🪙 Scratching card... (0.39) (4/6)")
+        # 3) Scratch Card (0.39)
+        await notify("🪙 Scratching card... (0.39) (3/5)")
         resp = await asyncio.to_thread(post, "scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.39"}, 'data')
         await notify(f"✅ Scratch card completed! (0.39)\n{print_response('Save Scratch Coins (0.39)', resp)[:200]}")
-        await asyncio.sleep(delays[3])
+        await asyncio.sleep(delays[2])
 
-        # 5) Checkin
-        await notify("📅 Daily checkin... (0.50) (5/6)")
+        # 4) Daily Checkin (0.50)
+        await notify("📅 Daily checkin... (0.50) (4/5)")
         resp = await asyncio.to_thread(post, "daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.50"}, 'data')
         await notify(f"✅ Daily checkin completed! (0.50)\n{print_response('Save Daily Checkin (0.50)', resp)[:200]}")
-        await asyncio.sleep(delays[4])
+        await asyncio.sleep(delays[3])
 
-        # 6) Video
-        await notify("📺 Watching video... (0.40) (6/6)")
+        # 5) Watch Video (0.40)
+        await notify("📺 Watching video... (0.40) (5/5)")
         resp = await asyncio.to_thread(post, "watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"}, 'data')
         await notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
 
         balance = await asyncio.to_thread(get_balance, device_id, key_id)
-        await notify(f"🎉 *All tasks completed!*\nToday's total: ₹{balance}")
+        await notify(f"🎉 *All 5 tasks completed!*\nToday's total: ₹{balance}")
         
     except Exception as e:
         await notify(f"❌ Error: {e}")
@@ -294,8 +289,7 @@ async def show_main_menu(update, context, message_obj=None):
         "चुनें नीचे दिए गए बटन से 👇"
     )
     if message_obj:
-        await message_obj.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
-        await message_obj.reply_text(f"🤖 *Bot Version:* `{BOT_VERSION}`", parse_mode="Markdown")
+        await message_obj.edit_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
     else:
         await update.message.reply_text(msg, reply_markup=get_main_menu(), parse_mode="Markdown")
         await update.message.reply_text(f"🤖 *Bot Version:* `{BOT_VERSION}`", parse_mode="Markdown")
@@ -357,7 +351,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user_id_str in users.keys():
         try:
             if is_reply:
-                # Accurately copy pictures, videos, and texts when replying
                 await context.bot.copy_message(
                     chat_id=user_id_str,
                     from_chat_id=update.message.chat_id,
@@ -367,16 +360,14 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     await context.bot.send_message(chat_id=user_id_str, text=message_text, parse_mode="Markdown")
                 except:
-                    # Fallback to standard text if markdown parsing fails
                     await context.bot.send_message(chat_id=user_id_str, text=message_text)
             
             success_count += 1
-            await asyncio.sleep(0.05) # Prevent Telegram flood limits (approx 20 msgs/second)
+            await asyncio.sleep(0.05) 
         except Exception as e:
             fail_count += 1
 
     await status_msg.edit_text(f"✅ *Broadcast Complete!*\n\n🟢 Success: {success_count}\n🔴 Failed: {fail_count}", parse_mode="Markdown")
-
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -387,10 +378,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "verify_sub":
         if await is_user_subscribed(context.bot, user_id):
-            try:
-                await query.message.delete()
-            except:
-                pass
             await show_main_menu(update, context, query.message)
         else:
             await query.answer("❌ आपने अभी तक सभी चैनल join नहीं किए हैं!", show_alert=True)
@@ -400,28 +387,51 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_force_sub_message(query.message)
         return
 
-    if data == "my_account":
+    # Pagination logic for "My Account"
+    if data == "my_account" or data.startswith("acc_page_"):
         accounts = await asyncio.to_thread(firebase_read, f"turbo/{chat_id}/accounts")
         if not accounts:
-            await query.message.reply_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
+            await query.message.edit_text("❌ आपका कोई अकाउंट नहीं है। पहले *Create Account* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
             return
+            
+        page = int(data.split("_")[2]) if data.startswith("acc_page_") else 0
+        items_per_page = 5
+        start_idx = page * items_per_page
+        end_idx = start_idx + items_per_page
+        
         keyboard = []
-        for idx, acc in enumerate(accounts):
+        for idx in range(start_idx, min(end_idx, len(accounts))):
+            acc = accounts[idx]
             label = f"📧 {acc.get('email', 'Unknown')}"
             keyboard.append([InlineKeyboardButton(label, callback_data=f"view_acc_{idx}")])
-        keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back_main")])
-        await query.message.reply_text("👤 *Your Accounts*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"acc_page_{page-1}"))
+        if end_idx < len(accounts):
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"acc_page_{page+1}"))
+            
+        if nav_row:
+            keyboard.append(nav_row)
+            
+        keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="back_main")])
+        
+        await query.message.edit_text(
+            f"👤 *Your Accounts (Page {page + 1})*\nTotal Accounts: {len(accounts)}", 
+            reply_markup=InlineKeyboardMarkup(keyboard), 
+            parse_mode="Markdown"
+        )
         return
 
     elif data.startswith("view_acc_"):
         try:
             idx = int(data.split("_")[2])
         except:
-            await query.message.reply_text("❌ Invalid account.", reply_markup=get_main_menu())
+            await query.message.edit_text("❌ Invalid account.", reply_markup=get_main_menu())
             return
         accounts = await asyncio.to_thread(firebase_read, f"turbo/{chat_id}/accounts")
         if not accounts or idx >= len(accounts):
-            await query.message.reply_text("❌ अकाउंट नहीं मिला।", reply_markup=get_main_menu())
+            await query.message.edit_text("❌ अकाउंट नहीं मिला।", reply_markup=get_main_menu())
             return
             
         acc = accounts[idx]
@@ -442,9 +452,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("💰 Balance", callback_data="balance")],
             [InlineKeyboardButton("📜 Coin History", callback_data="history")],
             [InlineKeyboardButton("💸 Withdraw", callback_data="withdraw")],
-            [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
+            [InlineKeyboardButton("🔙 Back to Accounts", callback_data="my_account")]
         ]
-        await query.message.reply_text(details, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.message.edit_text(details, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
     elif data == "do_task":
@@ -507,18 +517,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton("₹50", callback_data="withdraw_50")],
             [InlineKeyboardButton("₹100", callback_data="withdraw_100"),
              InlineKeyboardButton("₹250", callback_data="withdraw_250")],
-            [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
+            [InlineKeyboardButton("🔙 Back to Accounts", callback_data="my_account")]
         ]
-        await query.message.reply_text("💸 *Withdraw Amount*\n\nअपनी राशि चुनें:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.message.edit_text("💸 *Withdraw Amount*\n\nअपनी राशि चुनें:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
     elif data.startswith("withdraw_"):
         amount = data.split("_")[1]
-        await query.message.reply_text(f"❌ *Insufficient Balance!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस কমপক্ষে नहीं है।\n\nपहले *Complete Today Task* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await query.message.reply_text(f"❌ *Insufficient Balance!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस नहीं है।\n\nपहले *Complete Today Task* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
     elif data == "support":
-        await query.message.reply_text(
+        await query.message.edit_text(
             "📞 *Support*\n\nकिसी भी समस्या के लिए DM करें:\n[@Hamza3895](https://t.me/Hamza3895)\n\nया ऐप का इस्तेमाल करें: [TurboReward](https://app.turboreward.in)",
             reply_markup=get_main_menu(),
             parse_mode="Markdown"
@@ -526,7 +536,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif data == "back_main":
-        await query.message.reply_text("मुख्य मेनू पर वापस।", reply_markup=get_main_menu())
+        await show_main_menu(update, context, query.message)
         return
 
 # ---------- Conversation for Create Account ----------
@@ -646,12 +656,12 @@ def main():
     application.add_handler(conv_handler)
 
     application.add_handler(CommandHandler("start", start))
-    # Register the broadcast command handler
     application.add_handler(CommandHandler("broadcast", broadcast))
 
+    # Updated callback pattern to include acc_page_\\d+
     application.add_handler(CallbackQueryHandler(
         button_callback,
-        pattern="^(my_account|view_acc_\\d+|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support|verify_sub)$"
+        pattern="^(my_account|view_acc_\\d+|acc_page_\\d+|do_task|balance|history|withdraw|back_main|withdraw_\\d+|support|verify_sub)$"
     ))
 
     application.run_polling()
