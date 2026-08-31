@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ---------- Version & Config ----------
-BOT_VERSION = "2.0 Turbo Reward All Task Bypass"
+BOT_VERSION = "3.0 Turbo Reward All Task Bypass"
 # Add as many channels as you want to this list
 CHANNELS = ["@drdevstudio"]
 
