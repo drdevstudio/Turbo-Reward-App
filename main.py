@@ -19,7 +19,7 @@ from telegram.ext import (
 # ---------- Version & Config ----------
 BOT_VERSION = "3.0 Turbo Reward All Task Bypass"
 # Add as many channels as you want to this list
-CHANNELS = ["@drdevstudio"]
+CHANNELS = ["@drdevstudio", "@zxkaiinfo"]
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -244,15 +244,15 @@ async def run_tasks_async(device_id, key_id, bot, chat_id):
         await asyncio.sleep(delays[2])
 
         # 4) Scratch
-        await notify("🪙 Scratching card... (0.22) (4/6)")
-        resp = await asyncio.to_thread(post, "scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, 'data')
-        await notify(f"✅ Scratch card completed! (0.22)\n{print_response('Save Scratch Coins (0.22)', resp)[:200]}")
+        await notify("🪙 Scratching card... (0.39) (4/6)")
+        resp = await asyncio.to_thread(post, "scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.39"}, 'data')
+        await notify(f"✅ Scratch card completed! (0.39)\n{print_response('Save Scratch Coins (0.39)', resp)[:200]}")
         await asyncio.sleep(delays[3])
 
         # 5) Checkin
-        await notify("📅 Daily checkin... (0.22) (5/6)")
-        resp = await asyncio.to_thread(post, "daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.22"}, 'data')
-        await notify(f"✅ Daily checkin completed! (0.22)\n{print_response('Save Daily Checkin (0.22)', resp)[:200]}")
+        await notify("📅 Daily checkin... (0.50) (5/6)")
+        resp = await asyncio.to_thread(post, "daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.50"}, 'data')
+        await notify(f"✅ Daily checkin completed! (0.50)\n{print_response('Save Daily Checkin (0.50)', resp)[:200]}")
         await asyncio.sleep(delays[4])
 
         # 6) Video
