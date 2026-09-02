@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ---------- Version & Config ----------
-BOT_VERSION = "4.0 Turbo Reward All Task Bypass"
+BOT_VERSION = "5.0 Turbo Reward All Task Bypass & Payment 100% Verified"
 # Add as many channels as you want to this list
 CHANNELS = ["@drdevstudio", "@zxkaiinfo"]
 
@@ -214,10 +214,10 @@ async def run_tasks_async(device_id, key_id, bot, chat_id):
         except Exception as e:
             print(f"[ERROR] notify: {e}")
 
-    await notify(f"🧪 DEBUG: Running version `{BOT_VERSION}`")
+    await notify(f"🧪 Task Bypass version `{BOT_VERSION}`")
 
     # 4 delay blocks for 5 tasks
-    base_delays = [45, 60, 45, 35]
+    base_delays = [45, 75, 60, 45, 35]
     delays = [d + random.randint(-5, 5) for d in base_delays]
     total_seconds = sum(delays) + 10
     minutes = total_seconds // 60
@@ -227,31 +227,38 @@ async def run_tasks_async(device_id, key_id, bot, chat_id):
 
     try:
         # 1) Claim daily spins
-        await notify("🔄 Claiming daily spins... (1/5)")
+        await notify("🔄 Claiming daily spins... (1/6)")
         resp = await asyncio.to_thread(post, "spin/claim_daily_spins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms()}, 'data')
         await notify(f"✅ Daily spins claimed!\n{print_response('Claim Daily Spins', resp)[:200]}")
         await asyncio.sleep(delays[0])
 
         # 2) Save spin coin (0.99) - ONE TIME
-        await notify("🎡 Spinning... (0.99) (2/5)")
+        await notify("🎡 Spinning... (0.99) (2/6)")
         resp = await asyncio.to_thread(post, "spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, 'data')
         await notify(f"✅ Spin completed! (0.99)\n{print_response('Save Spin Coins (0.99)', resp)[:200]}")
         await asyncio.sleep(delays[1])
 
+        
+        await notify("🎡 Spinning... (0.99) (3/6)")
+        resp = await asyncio.to_thread(post, "spin/new_save_spin_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.99"}, 'data')
+        await notify(f"✅ Spin completed! (0.99)\n{print_response('Save Spin Coins (0.99)', resp)[:200]}")
+        await asyncio.sleep(delays[1])
+        
+
         # 3) Scratch Card (0.39)
-        await notify("🪙 Scratching card... (0.39) (3/5)")
+        await notify("🪙 Scratching card... (0.39) (4/6)")
         resp = await asyncio.to_thread(post, "scratch-card/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.39"}, 'data')
         await notify(f"✅ Scratch card completed! (0.39)\n{print_response('Save Scratch Coins (0.39)', resp)[:200]}")
         await asyncio.sleep(delays[2])
 
         # 4) Daily Checkin (0.50)
-        await notify("📅 Daily checkin... (0.50) (4/5)")
+        await notify("📅 Daily checkin... (0.50) (5/6)")
         resp = await asyncio.to_thread(post, "daily-checkin/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.50"}, 'data')
         await notify(f"✅ Daily checkin completed! (0.50)\n{print_response('Save Daily Checkin (0.50)', resp)[:200]}")
         await asyncio.sleep(delays[3])
 
         # 5) Watch Video (0.40)
-        await notify("📺 Watching video... (0.40) (5/5)")
+        await notify("📺 Watching video... (0.40) (6/6)")
         resp = await asyncio.to_thread(post, "watch-video/save_coins.php", {"device_id": device_id, "key_id": key_id, "milisecond": get_timestamp_ms(), "coins": "0.40"}, 'data')
         await notify(f"✅ Video watched! (0.40)\n{print_response('Save Watch Video (0.40)', resp)[:200]}")
 
@@ -281,7 +288,8 @@ def get_main_menu():
 async def show_main_menu(update, context, message_obj=None):
     msg = (
         "🎉 *Welcome to Turbo Reward Script!*\n"
-        "👨‍💻 Script by Dr. Dev || Dr. Hamza\n"
+        "👨‍💻 Script by Dr. Dev || Dr. Hamza @Hamza3895\n"
+        "🥹 Payment 100% Verified, see proof on Channel @drdevstudio\n"
         "📱 Official App: [TurboReward](https://app.turboreward.in)\n\n"
         "🔹 *Create Account* – बनाएं नया अकाउंट\n"
         "🔹 *My Account* – देखें अपने अकाउंट की डिटेल\n"
@@ -524,7 +532,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("withdraw_"):
         amount = data.split("_")[1]
-        await query.message.reply_text(f"❌ *Insufficient Balance!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस नहीं है।\n\nपहले *Complete Today Task* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
+        await query.message.reply_text(f"❌ *Withdraw from app!*\nआपके पास ₹{amount} निकालने के लिए पर्याप्त बैलेंस नहीं है।\n\nपहले *Complete Today Task* करें।", reply_markup=get_main_menu(), parse_mode="Markdown")
         return
 
     elif data == "support":
@@ -633,7 +641,7 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def health():
-    return "Bot is running!"
+    return "Bot is running! TurboRewardApp Script Bypass"
 
 def run_flask():
     flask_app.run(host='0.0.0.0', port=8080)
